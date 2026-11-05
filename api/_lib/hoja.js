@@ -84,19 +84,35 @@ function validar(id, h) {
       if (!/^[a-z0-9][a-z0-9_.-]{1,60}\.(txt|srt|json)$/.test(nombre)) throw new ErrorEstudio('Un nombre de texto del ZIP no es válido.', { estado: 400, tipo: 'peticion' });
       return { nombre, contenido: texto(t?.contenido, 400000) };
     });
-    // Voces para el audio único del paquete: en orden, con su inicio y su
-    // duración. No van como archivos sueltos en el ZIP; el montador las
-    // mezcla en un solo voces.wav (ver construir, modo zip).
-    const voces = lista(h.voces, 4000, 'las voces').map((v, i) => ({
-      ruta: medios.exigirDelProyecto(id, v?.ruta),
-      inicio: num(v?.inicio, 0, 4 * 3600, `el inicio de la voz ${i + 1}`),
-      segundos: num(v?.segundos, 0, 3600, `la duración de la voz ${i + 1}`),
-    }));
-    // Diálogos sueltos recortados al ras: cada línea, con su tramo y su
-    // desde/hasta dentro de él (hojas antiguas no los traen: opcionales).
+    // Voces para el audio único del paquete. Dos formas: la actual son
+    // PIEZAS (cortes [desde, hasta] de su archivo) que el montador une
+    // en un solo voces.wav CONTINUO, sin silencios; la antigua (hojas de
+    // versiones viejas) trae cada tramo con su inicio y su duración y
+    // se mezcla en su instante, con sus pausas.
+    const voces = lista(h.voces, 4000, 'las voces').map((v, i) => {
+      if (v?.desde !== undefined || v?.hasta !== undefined) {
+        const desde = num(v?.desde, 0, 3600, `el inicio de la pieza ${i + 1}`);
+        const hasta = num(v?.hasta, 0, 3600, `el fin de la pieza ${i + 1}`);
+        if (hasta <= desde) throw new ErrorEstudio(`La pieza ${i + 1} del ZIP no tiene duración.`, { estado: 400, tipo: 'peticion' });
+        return { ruta: medios.exigirDelProyecto(id, v?.ruta), desde, hasta };
+      }
+      return {
+        ruta: medios.exigirDelProyecto(id, v?.ruta),
+        inicio: num(v?.inicio, 0, 4 * 3600, `el inicio de la voz ${i + 1}`),
+        segundos: num(v?.segundos, 0, 3600, `la duración de la voz ${i + 1}`),
+      };
+    });
+    // Diálogos sueltos: la forma actual apunta a su rango de piezas del
+    // audio continuo (mismo corte, sin trabajo duplicado); la antigua
+    // trae su tramo y su desde/hasta dentro de él (opcional siempre).
     const dialogos = lista(h.dialogos, 4000, 'los diálogos').map((d, i) => {
       const nombre = String(d?.nombre || '');
       if (!/^[a-z0-9][a-z0-9/_.-]{1,140}$/.test(nombre) || nombre.includes('..')) throw new ErrorEstudio('Un nombre de diálogo del ZIP no es válido.', { estado: 400, tipo: 'peticion' });
+      if (Array.isArray(d?.piezas)) {
+        const [a, b] = d.piezas;
+        if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b < a || b >= voces.length) throw new ErrorEstudio(`El diálogo ${i + 1} del ZIP apunta a piezas que no existen.`, { estado: 400, tipo: 'peticion' });
+        return { nombre, piezas: [a, b] };
+      }
       const desde = num(d?.desde, 0, 3600, `el inicio del diálogo ${i + 1}`);
       const hasta = num(d?.hasta, 0, 3600, `el fin del diálogo ${i + 1}`);
       if (hasta <= desde) throw new ErrorEstudio(`El diálogo ${i + 1} del ZIP no tiene duración.`, { estado: 400, tipo: 'peticion' });
@@ -133,10 +149,41 @@ function construir(h, { bucket, carpeta }) {
       textos.push([`${carpeta}/textos/${t.nombre}`, t.contenido]);
       descargas.push([gs(`${carpeta}/textos/${t.nombre}`), 'material/textos/' + t.nombre]);
     }
-    // Audio único de voces: cada tramo normalizado y colocado en su
-    // instante, mezclado en material/voces.wav. Los tramos sueltos NO
-    // entran en el ZIP; solo entra este audio único, en orden.
     const voces = h.voces || [];
+    const archivo = `material-ep${pad(h.episodio, 2)}.zip`;
+    // AUDIO CONTINUO (la forma actual): las voces llegan como PIEZAS ya
+    // cortadas sin silencios por el navegador. Cada pieza se corta de su
+    // archivo con la normalización de siempre y el recorte de extremos
+    // de seguridad, y todas se unen EN ORDEN y sin huecos en un solo
+    // voces.wav: la voz corre desde el primer segundo, sin pausas
+    // muertas entre líneas ni dentro de ellas. Los diálogos sueltos se
+    // arman uniendo las piezas de su línea, ya cortadas: mismo corte.
+    const sonPiezas = voces.length > 0 && voces.every(v => v.desde !== undefined);
+    if (sonPiezas) {
+      const fuentes = [...new Set(voces.map(v => v.ruta))];
+      const indiceFuente = new Map(fuentes.map((r, i) => [r, i]));
+      for (const [i, r] of fuentes.entries()) descargas.push([gs(r), `a/v${pad(i + 1, 4)}.wav`]);
+      const filtroPieza = 'loudnorm=I=-16:TP=-1.5:LRA=11,silenceremove=start_periods=1:start_duration=0.05:start_threshold=-50dB,areverse,silenceremove=start_periods=1:start_duration=0.05:start_threshold=-50dB,areverse';
+      const cortes = voces.map((v, k) => `ffmpeg -nostdin -y -i a/v${pad(indiceFuente.get(v.ruta) + 1, 4)}.wav -af "atrim=start=${f3(v.desde)}:end=${f3(v.hasta)},asetpts=N/SR/TB,${filtroPieza}" -ar 48000 -ac 2 "a/piezas/p${pad(k + 1, 4)}.wav"`);
+      const unirVoces = `: > lista-voces.txt
+for n in $(seq -f '%04g' 1 ${voces.length}); do echo "file 'a/piezas/p$n.wav'" >> lista-voces.txt; done
+ffmpeg -nostdin -y -f concat -safe 0 -i lista-voces.txt -c copy material/voces.wav`;
+      const lineasDialogos = (h.dialogos || []).filter(d => d.piezas).map((d, k) => `{ for n in $(seq -f '%04g' ${d.piezas[0] + 1} ${d.piezas[1] + 1}); do echo "file 'a/piezas/p$n.wav'"; done; } > dlg-${k}.txt
+ffmpeg -nostdin -y -f concat -safe 0 -i dlg-${k}.txt -c copy "material/${d.nombre}"`);
+      const script = `#!/usr/bin/env bash
+set -Eeuo pipefail
+mkdir -p material/dialogos a/piezas
+${cortes.join('\n')}
+${unirVoces}
+${lineasDialogos.join('\n')}
+cd material
+zip -r -0 -q "../${archivo}" .
+`;
+      return { script, descargas, textos, archivo };
+    }
+    // Audio único de voces (forma antigua): cada tramo normalizado y
+    // colocado en su instante, mezclado en material/voces.wav. Los
+    // tramos sueltos NO entran en el ZIP; solo entra este audio único.
     const totalVoces = voces.reduce((n, v) => Math.max(n, v.inicio + v.segundos), 0);
     for (const [i, v] of voces.entries()) descargas.push([gs(v.ruta), `a/v${pad(i + 1, 4)}.wav`]);
     const vocesFiltro = voces.map((v, i) => `[${i}:a]loudnorm=I=-16:TP=-1.5:LRA=11,aresample=48000,aformat=channel_layouts=stereo,adelay=${Math.round(v.inicio * 1000)}:all=1[v${i}]`).join(';');
@@ -146,13 +193,12 @@ function construir(h, { bucket, carpeta }) {
     // silenceremove al derecho y al revés), con la misma normalización
     // que el audio único, y van a material/dialogos/ dentro del ZIP.
     const indiceVoz = new Map(voces.map((v, i) => [v.ruta, i]));
-    const lineasDialogos = (h.dialogos || []).map(d => {
+    const lineasDialogos = (h.dialogos || []).filter(d => !d.piezas).map(d => {
       const i = indiceVoz.get(d.ruta);
       if (i === undefined) return '';
       const filtro = `atrim=start=${f3(d.desde)}:end=${f3(d.hasta)},asetpts=N/SR/TB,loudnorm=I=-16:TP=-1.5:LRA=11,silenceremove=start_periods=1:start_duration=0.05:start_threshold=-50dB,areverse,silenceremove=start_periods=1:start_duration=0.05:start_threshold=-50dB,areverse`;
       return `ffmpeg -nostdin -y -i a/v${pad(i + 1, 4)}.wav -af "${filtro}" -ar 48000 -ac 2 "material/${d.nombre}"`;
     }).filter(Boolean);
-    const archivo = `material-ep${pad(h.episodio, 2)}.zip`;
     const script = `#!/usr/bin/env bash
 set -Eeuo pipefail
 ${voces.length ? `ffmpeg -nostdin -y ${vocesEntradas} -filter_complex "${vocesFiltro};${voces.map((_, i) => `[v${i}]`).join('')}amix=inputs=${voces.length}:normalize=0:dropout_transition=0,apad,atrim=0:${f3(totalVoces)}[o]" -map "[o]" -ar 48000 -ac 2 material/voces.wav
