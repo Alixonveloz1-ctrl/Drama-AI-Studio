@@ -34,6 +34,37 @@ import { vozVigente } from './voces.mjs';
 export const ENTRADA = 0.15, PAUSA = 0.08, COLA = 0.15, ADEL_VOZ = 0.25;
 export const MINIMO_PLANO = 0.5;
 
+// El audio de voces del paquete es CONTINUO (decisión del dueño, que
+// edita en CapCut): se pega al principio de la edición y corre sin
+// huecos, con voz desde el primer segundo. Todo silencio más largo de
+// CORTE_SILENCIO se corta y se deja en dos bordes de BORDE_PIEZA
+// (0,12 s en total, una pausa corta natural): entre líneas y también
+// DENTRO de cada línea, entre frase y frase, que era lo que él tenía
+// que cortar a mano.
+export const CORTE_SILENCIO = 0.4, BORDE_PIEZA = 0.06;
+
+// Las piezas de UNA línea dentro de su tramo de voz: la línea se parte
+// donde la pausa entre dos palabras seguidas pasa de CORTE_SILENCIO,
+// según los tiempos por palabra de la transcripción. Sin tiempos por
+// palabra (transcripción fallida), la línea va entera en una pieza y el
+// servidor le recorta el silencio de los extremos, como antes.
+export function piezasDeLinea(palabras, inicio, fin) {
+  const dentro = (palabras || [])
+    .filter(w => w.fin > inicio && w.inicio < fin)
+    .sort((a, b) => a.inicio - b.inicio);
+  if (!dentro.length) return [{ desde: inicio, hasta: fin }];
+  const piezas = [];
+  let desde = Math.max(inicio, dentro[0].inicio - BORDE_PIEZA);
+  for (let i = 1; i < dentro.length; i++) {
+    if (dentro[i].inicio - dentro[i - 1].fin > CORTE_SILENCIO) {
+      piezas.push({ desde, hasta: Math.min(fin, dentro[i - 1].fin + BORDE_PIEZA) });
+      desde = Math.max(inicio, dentro[i].inicio - BORDE_PIEZA);
+    }
+  }
+  piezas.push({ desde, hasta: Math.min(fin, dentro[dentro.length - 1].fin + BORDE_PIEZA) });
+  return piezas.filter(p => p.hasta - p.desde >= 0.05);
+}
+
 // Reparte D segundos entre los planos según su peso, sin bajar de un mínimo
 // por plano. Si ni con el mínimo caben, la escena se alarga lo justo.
 export function repartir(pesos, D) {
@@ -212,8 +243,10 @@ const mmss = s => `${dos(Math.floor(s / 60))}:${dos(Math.floor(s % 60))}`;
 // el mismo número (por ejemplo, toma 007: imagenes/toma-007.png y
 // videos/toma-007.mp4), para que nada se desordene cuando una toma no
 // tiene video. Las voces NO van sueltas por escena: van en un solo audio
-// (voces.wav, que mezcla el servidor en orden, con sus pausas), y la guía
-// dice en qué segundo empieza cada toma y cuánto dura. El archivo de
+// CONTINUO (voces.wav), hecho de piezas cortadas sin silencios, y cada
+// línea va además suelta en «dialogos» con el mismo corte. La guía dice
+// en qué segundo empieza cada toma EN EL MONTAJE de la app (el audio
+// continuo, al no tener pausas, no comparte esos tiempos). El archivo de
 // subtítulos con tiempos (subtitulos.srt, para CapCut) va SIEMPRE, aunque
 // el episodio todavía no tenga imágenes: Exportar completa antes voces,
 // música y tiempos, así que en uso real nunca va vacío.
@@ -231,22 +264,20 @@ export function hojaDeZip(datos, numero) {
   // puede, por peso si no), así que los segundos de la guía coinciden
   // con los del montaje.
   const guia = [];
-  const vocesZip = [];
+  const piezasZip = [];
   const dialogosZip = [];
   const guiaDialogos = [];
   const subtitulosZip = [];
+  const redondear3 = n => Number(n.toFixed(3));
   let toma = 0, tEscena = 0, numDialogo = 0;
   for (const [n, e] of escenas.entries()) {
     const tiempos = tiemposDeEscena(e, tEscena);
     const { durs, total: D } = duracionesDeEscena(e, tiempos);
-    // Voces de esta escena, en orden, con su inicio y su duración: el
-    // servidor las mezcla en un solo voces.wav, no una por archivo.
-    for (const v of tiempos.voces) vocesZip.push({ ruta: v.ruta, inicio: Number(v.inicio.toFixed(3)), segundos: v.segundos });
-    // Y ADEMÁS, cada línea suelta y RECORTADA AL RAS (decisión del dueño:
-    // en CapCut perdía mucho tiempo cortando los silencios de cada línea
-    // a mano). Una entrada por línea hablada, en orden del episodio, con
-    // su tramo y su desde/hasta dentro de él: el servidor la recorta y
-    // le quita el silencio del principio y del final.
+    // Las voces del paquete son PIEZAS, en orden del episodio: cada línea
+    // se parte donde su pausa interna pasa de CORTE_SILENCIO (piezasDeLinea)
+    // y el servidor las une todas en un solo voces.wav continuo, sin
+    // huecos entre líneas ni dentro de ellas. Cada diálogo suelto apunta
+    // a su rango de piezas: el mismo corte, sin trabajo duplicado.
     for (const tr of e.voz?.tramos || []) {
       (tr.lineas || []).forEach((indice, k) => {
         const linea = (e.lineas || [])[indice];
@@ -255,7 +286,11 @@ export function hojaDeZip(datos, numero) {
         numDialogo++;
         const nombre = `dialogos/dialogo-${tres(numDialogo)}.wav`;
         const quien = linea.tipo === 'sistema' ? 'Sistema' : linea.personaje === 'extra' ? (linea.nombre || 'Extra') : nombreDe(u, linea.personaje);
-        dialogosZip.push({ ruta: tr.ruta, desde: Number(tt.inicio.toFixed(3)), hasta: Number(tt.fin.toFixed(3)), nombre });
+        const primera = piezasZip.length;
+        for (const pz of piezasDeLinea(tr.palabras, tt.inicio, tt.fin)) {
+          piezasZip.push({ ruta: tr.ruta, desde: redondear3(pz.desde), hasta: redondear3(pz.hasta) });
+        }
+        dialogosZip.push({ nombre, piezas: [primera, piezasZip.length - 1] });
         guiaDialogos.push(`Diálogo ${tres(numDialogo)} — ${quien}${linea.tipo === 'pensamiento' ? ' (piensa)' : ''}: «${linea.texto}» — archivo ${nombre}`);
       });
     }
@@ -287,10 +322,10 @@ export function hojaDeZip(datos, numero) {
   const textos = [
     { nombre: 'guion.txt', contenido: guion },
     { nombre: 'direccion-creativa.txt', contenido: direccion },
-    { nombre: 'guia.txt', contenido: `GUÍA DEL EPISODIO ${numero} — cada toma, en orden, con su inicio y su duración.\nLas voces van en un solo audio (voces.wav) en este mismo orden, con sus pausas: para editar, ajusta solo las imágenes, no las voces.\nY cada línea va además suelta en la carpeta «dialogos», recortada al ras (sin silencio al principio ni al final), por si prefieres colocarlas una a una.\n\n${guia.join('\n')}${guiaDialogos.length ? `\n\nDIÁLOGOS SUELTOS, EN ORDEN:\n${guiaDialogos.join('\n')}` : ''}` },
+    { nombre: 'guia.txt', contenido: `GUÍA DEL EPISODIO ${numero} — cada toma, en orden, con su inicio y su duración EN EL MONTAJE de la app.\nLas voces van en UN SOLO AUDIO CONTINUO (voces.wav), con los silencios ya cortados — también los de dentro de cada frase —: pégalo al principio de tu edición y acomoda las imágenes sobre él. Por eso sus tiempos NO coinciden con los de esta guía, que son los del montaje automático.\nY cada línea va además suelta en la carpeta «dialogos», con el mismo corte de silencios, por si prefieres colocarlas una a una.\n\n${guia.join('\n')}${guiaDialogos.length ? `\n\nDIÁLOGOS SUELTOS, EN ORDEN:\n${guiaDialogos.join('\n')}` : ''}` },
     { nombre: 'subtitulos.srt', contenido: subtitulosZip.map((s, i) => `${i + 1}\n${tSrt(s.inicio)} --> ${tSrt(s.fin)}\n${s.texto}\n`).join('\n') },
   ];
-  return { modo: 'zip', episodio: numero, archivos, textos, voces: vocesZip, dialogos: dialogosZip };
+  return { modo: 'zip', episodio: numero, archivos, textos, voces: piezasZip, dialogos: dialogosZip };
 }
 
 async function dormir(segundos, control) {
