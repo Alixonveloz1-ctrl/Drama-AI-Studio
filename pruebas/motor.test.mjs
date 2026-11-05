@@ -297,19 +297,70 @@ test('primer plano: el estado que se manda a la imagen habla solo del visible', 
   );
 });
 
-test('desglose: si una escena sola se pasa de tiempo, se reintenta pidiéndola más pequeña', async () => {
+test('desglose: si una escena sola se pasa de tiempo, se parte en dos llamadas completas, sin recortes', async () => {
   const u = universoValido();
   u.escenarios.forEach(e => { e.ficha = e.ficha || 'Exterior. Stone courtyard, wooden gate on the left, well on the right, dawn light.'; });
   const e = escenaDePrueba();
+  const [primera, segunda] = D.partirEscena(e);
+  assert.ok(primera.lineas.length >= 1 && segunda.lineas.length >= 1, 'la escena se parte por sus líneas');
+  assert.equal(primera.lineas.length + segunda.lineas.length, e.lineas.length);
+  // La segunda parte ancla solo en sus líneas (la «acción» ya pasó) y su
+  // primer plano lleva «cambio», como manda el prompt de continuación.
+  const parte2 = desgloseValido({ ...segunda, accion: '' });
+  parte2.escenas[0].planos[0].cambio = 'Lin Feng lifts his head a little more than in the previous shot.';
+  // La primera parte trae 7 planos y la escena admite 13 en total: la
+  // segunda parte trae 6, como manda su objetivo.
+  parte2.escenas[0].planos = parte2.escenas[0].planos.slice(0, 6);
   const datos = { formulario, universo: u, biblia: {}, episodios: { 1: { bloques: [{ escenas: [e] }] } } };
   respuestas = [
     { estado: 504, cuerpo: { error: 'Google tardó más de 50 s', tipo: 'tiempo' } },
-    texto(desgloseValido(e)),
+    { estado: 504, cuerpo: { error: 'Google tardó más de 50 s', tipo: 'tiempo' } },
+    texto(desgloseValido(primera)),
+    texto(parte2),
     texto({ revisadas: ['e1'], correcciones: [] }),
   ];
   await D.desglosar(datos, 1, { guardar: async () => {} });
-  assert.ok(e.planos?.length >= 1, 'la escena queda desglosada tras el reintento breve');
-  assert.match(llamadas[1].cuerpo.mensaje, /RESPUESTA BREVE OBLIGATORIA/, 'el segundo intento pide la respuesta más pequeña');
+  assert.ok(e.planos?.length >= D.minimoPlanos(e), 'la escena queda desglosada uniendo las dos partes');
+  assert.equal(e.planos.at(-1).id, `e1-${e.planos.length}`, 'los planos quedan numerados como una sola escena');
+  assert.match(llamadas[2].cuerpo.mensaje, /PRIMERA PARTE/, 'la primera llamada pide la primera mitad completa');
+  assert.match(llamadas[3].cuerpo.mensaje, /SEGUNDA PARTE/, 'la segunda llamada continúa donde quedó la primera');
+  assert.ok(!llamadas.some(l => /RESPUESTA BREVE|máximo 25 palabras/.test(l.cuerpo.mensaje || '')), 'ninguna llamada recorta descripciones: el modo breve ya no existe');
+});
+
+test('desglose: un fallo solo de un campo se corrige sin reescribir el desglose entero', async () => {
+  const u = universoValido();
+  u.escenarios.forEach(e => { e.ficha = e.ficha || 'Exterior. Stone courtyard, wooden gate on the left, well on the right, dawn light.'; });
+  const e = escenaDePrueba();
+  const roto = desgloseValido(e);
+  // El estado del plano 6 olvida a Wang Hu: fallo de UN campo.
+  roto.escenas[0].planos[5].estado = 'Lin Feng kneels alone in the courtyard, breathing hard and looking down at the floor.';
+  const datos = { formulario, universo: u, biblia: {}, episodios: { 1: { bloques: [{ escenas: [e] }] } } };
+  respuestas = [
+    texto(roto),
+    texto({ correcciones: [{ escena: 'e1', plano: 6, estado: 'Lin Feng kneels on the stone floor of the courtyard; Wang Hu stands over him, two steps away.' }] }),
+    texto({ revisadas: ['e1'], correcciones: [] }),
+  ];
+  await D.desglosar(datos, 1, { guardar: async () => {} });
+  assert.match(llamadas[1].cuerpo.mensaje, /CORRECCIÓN DIRIGIDA/, 'la segunda llamada es la corrección enfocada, no otro desglose');
+  assert.ok(e.planos[5].estado.includes('Wang Hu'), 'el estado corregido nombra a todos los presentes');
+  assert.equal(e.planos.length, roto.escenas[0].planos.length, 'el resto del desglose no se reescribió');
+});
+
+test('desglose: la clasificación separa fallos de campo de fallos estructurales', () => {
+  assert.deepEqual(
+    D.fallosDeCampo(['el estado del plano 6 de la escena e1 no dice dónde está Lin, Mei']).map(f => [f.escena, f.plano, f.campo]),
+    [['e1', 6, 'estado']],
+  );
+  assert.equal(D.fallosDeCampo(['el ancla del plano 2 de la escena e1 no está copiada literalmente del texto']), null, 'un ancla mala es estructural');
+  assert.equal(D.fallosDeCampo(['el estado del plano 6 de la escena e1 no dice dónde está Lin', 'la escena e1 tiene 2 planos y necesita al menos 5']), null, 'si hay algo estructural, no vale la corrección dirigida');
+});
+
+test('guion: las escenas se piden cortas (25 a 55 palabras, unos 20 segundos)', () => {
+  const datos = { formulario, universo: universoValido(), biblia: {}, episodios: {} };
+  const { mensaje } = P.promptBloque(datos, 1, 0, P.planDelEpisodio(formulario));
+  assert.match(mensaje, /ESCENAS CORTAS/);
+  assert.match(mensaje, /25 a 55 palabras/);
+  assert.ok(!mensaje.includes('40 a 150'), 'ya no se permiten escenas de hasta 150 palabras');
 });
 
 // ─── Videos ───
