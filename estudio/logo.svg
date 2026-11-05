@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 52" role="img" aria-label="Pagoda">
+  <defs>
+    <linearGradient id="oro" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fbe3a2"/>
+      <stop offset="0.55" stop-color="#e6b24f"/>
+      <stop offset="1" stop-color="#b9842c"/>
+    </linearGradient>
+  </defs>
+  <g fill="url(#oro)">
+    <rect x="31" y="1" width="2" height="6" rx="1"/>
+    <circle cx="32" cy="2" r="1.8"/>
+    <path d="M14 15c7-1 12-4 18-8 6 4 11 7 18 8l-2 2H16z"/>
+    <rect x="20" y="17" width="24" height="6"/>
+    <path d="M8 28c9-1 16-4 24-8 8 4 15 7 24 8l-2 2H10z"/>
+    <rect x="15" y="30" width="34" height="7"/>
+    <path d="M2 42c11-1 20-4 30-8 10 4 19 7 30 8l-2 2H4z"/>
+    <rect x="9" y="44" width="46" height="6"/>
+    <rect x="0" y="50" width="64" height="2" rx="1"/>
+  </g>
+  <g fill="#0b0b10">
+    <rect x="24" y="18.5" width="3" height="4"/><rect x="30.5" y="18.5" width="3" height="4"/><rect x="37" y="18.5" width="3" height="4"/>
+    <rect x="19" y="31.5" width="3.5" height="5"/><rect x="26" y="31.5" width="3.5" height="5"/><rect x="34.5" y="31.5" width="3.5" height="5"/><rect x="41.5" y="31.5" width="3.5" height="5"/>
+    <rect x="29" y="45" width="6" height="5"/>
+  </g>
+</svg>
