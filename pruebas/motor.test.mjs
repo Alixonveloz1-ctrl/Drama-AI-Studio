@@ -673,6 +673,28 @@ test('voces: cada personaje recibe una voz distinta según su sexo y la escena s
   assert.equal(seguidas.length, 1, 'líneas seguidas de la misma voz van juntas');
 });
 
+test('voces: el Sistema siempre recibe voz de mujer y una de hombre guardada se sustituye sola', () => {
+  const u = universoValido();
+  u.personajes[0].sexo = 'hombre'; u.personajes[1].sexo = 'mujer';
+  u.tieneSistema = true;
+  VZ.asignarVoces(u, VOCES);
+  assert.equal(VOCES.find(v => v.nombre === u.vozSistema).genero, 'mujer', 'la voz del Sistema es de mujer');
+  // Proyecto antiguo: la voz del Sistema quedó guardada en una de hombre
+  // (se eligió sin mirar el sexo) y regenerar no la cambiaba.
+  const viejo = universoValido();
+  viejo.personajes[0].sexo = 'hombre'; viejo.personajes[1].sexo = 'mujer';
+  viejo.tieneSistema = true;
+  viejo.personajes[0].voz = 'Puck'; viejo.personajes[1].voz = 'Kore';
+  viejo.vozSistema = 'Charon';
+  const conSistema = { lineas: [{ tipo: 'sistema', personaje: null, texto: 'Misión.' }], voz: { tramos: [{ ruta: 'r' }], version: VZ.VERSION_VOZ } };
+  const sinSistema = { lineas: [{ tipo: 'dialogo', personaje: 'c1', texto: 'Hola.' }], voz: { tramos: [{ ruta: 'r' }], version: VZ.VERSION_VOZ } };
+  assert.equal(VZ.asignarVoces(viejo, VOCES, [conSistema, sinSistema]), true, 'la sustitución cuenta como cambio');
+  assert.equal(VOCES.find(v => v.nombre === viejo.vozSistema).genero, 'mujer', 'la voz de hombre se sustituye por una de mujer');
+  assert.equal(conSistema.voz.obsoleta, true, 'la escena grabada con la voz vieja queda marcada para rehacer');
+  assert.ok(!sinSistema.voz.obsoleta, 'una escena sin líneas del Sistema no se toca');
+  assert.equal(VZ.asignarVoces(viejo, VOCES), false, 'una vez sustituida, no se cambia sola');
+});
+
 test('voces: la escena entera se genera por tramos y solo se guarda cuando están todos', async () => {
   const datos = { formulario, universo: universoValido() };
   datos.universo.personajes[0].sexo = 'hombre'; datos.universo.personajes[1].sexo = 'mujer';
