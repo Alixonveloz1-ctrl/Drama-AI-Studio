@@ -68,4 +68,13 @@ function tituloDeHtml(html) {
   return m ? m[1].replace(/&amp;/g, '&').replace(/&quot;/g, '"').trim() : '';
 }
 
-module.exports = { idDeEnlace, pistasDeHtml, elegirPista, textoDeJson3, tituloDeHtml };
+// La duración del video, en segundos: viene en el html de la página
+// (lengthSeconds del reproductor). Con ella el estudio sabe cuántos
+// trozos de 20 minutos hacen falta para mirar el video COMPLETO.
+function duracionDeHtml(html) {
+  const m = String(html || '').match(/"lengthSeconds":"(\d+)"/);
+  const n = m ? Number(m[1]) : 0;
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+module.exports = { idDeEnlace, pistasDeHtml, elegirPista, textoDeJson3, tituloDeHtml, duracionDeHtml };
