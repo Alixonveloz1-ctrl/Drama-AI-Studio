@@ -1,0 +1,9 @@
+node_modules/
+__pycache__/
+*.pyc
+.secrets/
+*.pem
+*-service-account.json
+clave-cuenta-servicio.json
+.vercel/
+.env*
