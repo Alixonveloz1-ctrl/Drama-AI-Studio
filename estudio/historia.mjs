@@ -13,7 +13,7 @@ import { GENEROS, SUBGENEROS, PUBLICOS, FORMATOS, SUBGENEROS_ADULTOS, PARES_EXCL
 import { proyectoActual, empezar, guardar, abrir, cerrar, nombreDe } from './proyectos.mjs';
 import { generarIdeas, generarUniverso, escribirGuion, segundosDelEpisodio, validarBiblia } from './guion.mjs';
 import { crearControl, pedirTexto, parsearJSON } from './texto.mjs';
-import { conceptoDesdeEnlace } from './inspiracion.mjs';
+import { historiaDesdeEnlace } from './inspiracion.mjs';
 import { promptBiblia } from './prompts.mjs';
 import { explicar } from './red.mjs';
 import { escapar, avisar } from './interfaz.mjs';
@@ -57,7 +57,9 @@ function pintarAhora() {
   const estadoForm = raiz.querySelector('#h-form-estado');
   if (estadoForm) estadoForm.innerHTML = cajaError('formulario') + cajaProgreso('formulario');
   const botonIdeas = raiz.querySelector('#h-boton-ideas');
-  if (botonIdeas) botonIdeas.textContent = d?.ideas?.length ? 'Otras tres ideas' : 'Generar tres ideas';
+  if (botonIdeas) botonIdeas.textContent = d?.formulario?.importadaDe && !d?.universo
+    ? 'Crear esta historia y escribir su guion'
+    : d?.ideas?.length ? 'Otras tres ideas' : 'Generar tres ideas';
   raiz.querySelector('#h-ideas').innerHTML = htmlIdeas(d);
   raiz.querySelector('#h-universo').innerHTML = htmlUniverso(d);
   raiz.querySelector('#h-guion').innerHTML = htmlGuion(d);
@@ -120,8 +122,10 @@ function htmlFormulario(d) {
     <label class="campo">Tu concepto <span class="nota">(opcional)</span><textarea name="concepto" rows="4" placeholder="Una situación, un personaje, una época…">${escapar(f.concepto)}</textarea></label>
     <div class="campo">¿Partir de un video que ya funciona? <span class="nota">(opcional)</span>
       <input type="url" name="enlace" placeholder="Pega aquí el enlace de YouTube" inputmode="url">
-      <button type="button" class="btn-sec ancho" data-accion="inspiracion">Traer el concepto de ese video</button>
-      <p class="nota">Gemini mira la primera hora de ese video, en trozos de 20 minutos, y te deja su concepto y su motor escritos arriba, en «Tu concepto», para que lo revises y lo uses tal cual o lo ajustes antes de generar las ideas. Puede tardar unos minutos.</p>
+      <button type="button" class="btn-sec ancho" data-accion="inspiracion">Traer la historia de ese video</button>
+      <p class="nota">Gemini mira ese video COMPLETO, en trozos de 20 minutos, y escribe su historia entera arriba, en «Tu concepto»: la misma historia, en su orden, con sus giros y recompensas. Con un video no hay tres ideas: el botón grande crea esta historia y escribe su guion directamente, con personajes y lugares nuevos. Puede tardar unos minutos.</p>
+      ${f.importadaDe ? `<p class="nota oro">Historia traída${f.importadaDe.titulo ? ` de «${escapar(f.importadaDe.titulo)}»` : ''}: el botón grande produce ESTA historia, sin pasar por las tres ideas.</p>
+      <button type="button" class="btn-sec ancho" data-accion="quitar-importada">Quitar el video y escribir mi propio concepto</button>` : ''}
     </div>
     <div id="h-form-estado"></div>
     <button type="button" class="btn ancho" data-accion="ideas" id="h-boton-ideas">Generar tres ideas</button>
@@ -268,8 +272,20 @@ async function alPulsar(evento) {
   if (accion === 'detener') { ocupado?.control.detener(); return; }
   if (ocupado) return;
   if (accion === 'continuar') { document.dispatchEvent(new CustomEvent('ir-a', { detail: 'personajes' })); return; }
-  if (accion === 'ideas') return trabajar('formulario', 'Escribiendo tres ideas', accionIdeas);
+  if (accion === 'ideas') {
+    // Con una historia traída de un video no hay tres ideas: el botón
+    // crea el universo de ESA historia y escribe su guion de una vez.
+    const d0 = proyectoActual()?.datos;
+    if (d0?.formulario?.importadaDe && !d0?.universo) return trabajar('formulario', 'Creando la historia de ese video', accionHistoriaImportada);
+    return trabajar('formulario', 'Escribiendo tres ideas', accionIdeas);
+  }
   if (accion === 'inspiracion') return trabajar('formulario', 'Leyendo la historia de ese video', accionInspiracion);
+  if (accion === 'quitar-importada') {
+    const d = proyectoActual()?.datos;
+    if (d?.formulario) { delete d.formulario.importadaDe; d.formulario.concepto = ''; await guardar(); }
+    formularioPintadoPara = undefined;
+    return pintar();
+  }
   if (accion === 'elegir') return trabajar('ideas', 'Desarrollando el universo', o => accionElegir(boton.dataset.id, o));
   if (accion === 'biblia') return trabajar('biblia', 'El director escribe la biblia de la serie', accionBiblia);
   if (accion === 'guion') return trabajar('guion', 'Escribiendo el guion', accionGuion);
@@ -326,19 +342,50 @@ async function accionInspiracion(opciones) {
   const form = raiz.querySelector('#h-form');
   const enlace = form.querySelector('[name="enlace"]').value.trim();
   if (!enlace) throw new Error('Pega primero el enlace del video en su casilla.');
-  const { texto, titulo } = await conceptoDesdeEnlace(enlace, opciones);
-  const caja = form.querySelector('[name="concepto"]');
-  caja.value = texto;
-  // Lo traído queda también en el formulario guardado: si la pantalla se
-  // repinta, el concepto no se pierde.
+  const { texto, titulo } = await historiaDesdeEnlace(enlace, opciones);
+  // La historia queda en el formulario guardado, marcada como traída de
+  // ese video: el botón grande la produce directa, sin tres ideas. El
+  // formulario se repinta entero para enseñar la marca y el botón nuevo.
   const formulario = leerFormulario();
   formulario.concepto = texto;
+  formulario.importadaDe = { enlace, titulo };
   let p = proyectoActual();
   if (!p) p = empezar({ version: 1, formulario });
   p.datos.formulario = formulario;
   await guardar();
-  avisar(`Concepto traído${titulo ? ` de «${titulo}»` : ''}. Revísalo en «Tu concepto» y genera las ideas cuando quieras.`, 'success');
-  caja.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  formularioPintadoPara = undefined;
+  avisar(`Historia traída${titulo ? ` de «${titulo}»` : ''}. Quedó escrita en «Tu concepto»: revísala si quieres y pulsa «Crear esta historia y escribir su guion».`, 'success');
+  return '#h-boton-ideas';
+}
+
+// La ruta del enlace: sin ideas. La historia traída ES la elegida: se
+// crea su universo y se escribe el guion completo de una vez, como
+// pidió el dueño («de una vez agarrar esa idea y generar el guión»).
+async function accionHistoriaImportada(opciones) {
+  const formulario = leerFormulario();
+  let p = proyectoActual();
+  if (!p) p = empezar({ version: 1, formulario });
+  formulario.importadaDe = p.datos.formulario?.importadaDe;
+  p.datos.formulario = formulario;
+  const d = p.datos;
+  if (!formulario.concepto) throw new Error('La historia del video está vacía: trae el enlace de nuevo o escribe un concepto propio.');
+  const idea = { id: 'importada', titulo: formulario.importadaDe?.titulo || 'Historia del video', concepto: formulario.concepto };
+  d.ideas = [idea];
+  d.ideaElegida = 'importada';
+  await guardar();
+  await generarUniverso(d, idea, opciones);
+  opciones.aviso?.('Universo creado. Escribiendo el guion completo de esta historia…');
+  d.episodioActual = 1;
+  await escribirGuion(d, 1, {
+    ...opciones,
+    alAvanzar: () => {
+      const ep = d.episodios[1];
+      if (ocupado && ep?.plan) { ocupado.total = ep.plan.length; ocupado.hecho = ep.bloques.length; }
+      pintar();
+    },
+  });
+  avisar('Guion terminado: es la historia del video, con personajes y lugares nuevos.', 'success');
+  return '#h-guion';
 }
 
 async function accionIdeas(opciones) {
