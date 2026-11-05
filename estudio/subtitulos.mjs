@@ -51,19 +51,29 @@ export function alinearTramo(textos, palabrasStt, duracion) {
 }
 
 // Alinea los tramos de voz de una escena que aún no tengan tiempos.
+// Además de los tiempos por línea, se guardan los tiempos por PALABRA
+// del tramo (t.palabras): el paquete los usa para cortar los silencios
+// de DENTRO de cada línea en el audio continuo (decisión del dueño:
+// nada de pausas muertas ni entre frases). Un tramo ya alineado sin
+// palabras se transcribe una vez más para conseguirlas; si esa vez la
+// transcripción falla, se conservan sus tiempos buenos y no se reintenta.
 export async function alinearEscena({ proyectoId, escena, control, aviso }) {
   for (const t of escena.voz?.tramos || []) {
-    if (t.tiempos?.length === t.lineas.length) continue;
+    if (t.tiempos?.length === t.lineas.length && t.palabras !== undefined) continue;
     const textos = t.lineas.map(i => escena.lineas[i]?.texto || '');
-    let palabras = [];
+    let palabras = [], llego = false;
     try {
       const r = await pedirMedio('/api/transcripcion', { proyecto: proyectoId, ruta: t.ruta }, { control, aviso });
       palabras = r.palabras || [];
+      llego = true;
     } catch (e) {
       if (e.detenido) throw e;
       // Sin transcripción: reparto proporcional (sección 15).
     }
-    t.tiempos = alinearTramo(textos, palabras, t.segundos || 0);
+    t.palabras = llego
+      ? palabras.map(w => ({ inicio: Number(w.inicio) || 0, fin: Number(w.fin) || 0 })).filter(w => w.fin > w.inicio)
+      : (t.palabras ?? []);
+    if (llego || !(t.tiempos?.length === t.lineas.length)) t.tiempos = alinearTramo(textos, palabras, t.segundos || 0);
   }
 }
 
