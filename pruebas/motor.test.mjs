@@ -625,6 +625,49 @@ test('video: Veo dice el texto exacto de la toma en español (diálogo en pantal
   assert.ok(neutro.endsWith(V.AUDIO) && !neutro.includes('SPOKEN DIALOGUE') && !neutro.includes('VOICE-OVER'));
 });
 
+test('video: el prompt lleva el contexto completo del plano (reparto, posiciones, destinatario y final fijo)', () => {
+  const u = universoValido();
+  const datos = { universo: u };
+  // Intercambio de dos: Wang Hu habla y Lin Feng le responde. La línea
+  // de Lin Feng va dirigida A Wang Hu, esté quien esté a su lado en la
+  // imagen (el fallo en vivo: la línea se decía a la persona equivocada).
+  const escena = { lineas: [
+    { tipo: 'dialogo', personaje: 'c2', texto: 'Ríndete de una vez, muchacho.' },
+    { tipo: 'dialogo', personaje: 'c1', texto: 'Suéltala ahora mismo si quieres salir.' },
+  ] };
+  const voz = V.vozDelPlano(datos, escena, { ancla: 'Suéltala ahora mismo' });
+  assert.equal(voz.tipo, 'dialogo');
+  assert.equal(voz.destinatario?.nombre, 'Wang Hu', 'el destinatario es quien habló justo antes');
+  const conDestino = V.promptVideo({ movimiento: 'Lin Feng points at Wang Hu.' }, u.escenarios[0], { voz });
+  assert.match(conDestino, /talking TO Wang Hu/);
+  assert.match(conDestino, /Nobody else speaks/, 'la línea no se reparte: los demás callan');
+  // Contexto: reparto con identidades, posiciones (el estado que el
+  // director ya escribe) e identidad cerrada para todo el clip.
+  const plano = { personajes: ['c1', 'c2'], presentes: ['c1', 'c2'], encuadre: 'medio',
+    estado: 'Lin Feng stands at the door pointing at Wang Hu; Wang Hu holds the girl by the arm beside the table.' };
+  const contexto = V.contextoDelPlano(datos, plano);
+  assert.deepEqual(contexto.reparto.map(r => r.nombre), ['Lin Feng', 'Wang Hu']);
+  const conContexto = V.promptVideo({ movimiento: 'Lin Feng slowly raises his head.' }, u.escenarios[0], { contexto });
+  assert.match(conContexto, /CAST AND STAGING/);
+  assert.match(conContexto, /Wang Hu holds the girl by the arm/, 'las posiciones del estado llegan a Veo');
+  assert.match(conContexto, /IDENTITY LOCK/, 'la identidad va cerrada para todo el clip');
+  assert.match(conContexto, /HOLDS that final state/, 'el clip entero va dirigido, no solo el movimiento');
+  assert.match(conContexto, /nobody leaves the frame/);
+  // Encuadre cerrado: el estado se recorta a quien se ve (la misma regla
+  // de las imágenes), para no describir a quien no sale en el plano.
+  const cerrado = V.contextoDelPlano(datos, { personajes: ['c2'], presentes: ['c1', 'c2'], encuadre: 'primer_plano',
+    estado: 'Lin Feng kneels on the stone floor; Wang Hu stands over him, two steps away.' });
+  assert.ok(cerrado.estado.includes('Wang Hu'));
+  assert.ok(!cerrado.estado.includes('kneels'), 'lo de quien no se ve no entra en el primer plano');
+  // Negativos nuevos: la identidad siempre; las salidas y los saltos
+  // solo cuando el guion no los pide.
+  const neg = V.negativoVideo({ movimiento: '', salen: [] }, u.escenarios[0], {});
+  assert.match(neg, /gender change/);
+  assert.match(neg, /leaving the frame/);
+  assert.ok(!V.negativoVideo({ movimiento: '', salen: ['c2'] }, u.escenarios[0], {}).includes('leaving the frame'), 'si el guion saca a alguien del plano, no se prohíbe salir');
+  assert.ok(!V.negativoVideo({ movimiento: 'He stands up and leaves the room.' }, u.escenarios[0], {}).includes('leaving the frame'), 'si el movimiento escrito sale, no se prohíbe');
+});
+
 test('lugares: el director escribe una ficha detallada en inglés de cada lugar y va completa en cada plano', async () => {
   const datos = { formulario, universo: universoValido(), biblia: { direccionVisual: 'ocre' } };
   const larga = n => Array.from({ length: n }, (_, i) => `the stone item ${i} with old wood`).join(', ');
