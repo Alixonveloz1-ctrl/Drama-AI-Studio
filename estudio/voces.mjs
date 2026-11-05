@@ -29,9 +29,19 @@ function hash(texto) {
 }
 
 // Reparte voces a quien no la tenga. Devuelve true si cambió algo.
-export function asignarVoces(u, voces) {
+// `escenas` (opcional): si la voz del Sistema se SUSTITUYE (ver abajo),
+// las escenas ya grabadas que tienen líneas del Sistema quedan marcadas
+// para rehacer, porque suenan con la voz vieja.
+export function asignarVoces(u, voces, escenas = []) {
   if (!voces?.length) return false;
-  const usadas = new Set([...u.personajes.map(p => p.voz), u.vozSistema].filter(Boolean));
+  const porNombre = new Map(voces.map(v => [v.nombre, v]));
+  // La voz del Sistema solo vale si está en el catálogo y NO es de hombre:
+  // el Sistema habla siempre con voz de mujer (decisión del dueño). Antes
+  // se elegía entre todo el catálogo sin mirar el sexo y en algunos
+  // proyectos cayó en voz de hombre; como quedaba guardada, regenerar la
+  // escena no lo arreglaba. Aquí se detecta y se sustituye sola.
+  const sistemaVale = Boolean(u.vozSistema) && porNombre.has(u.vozSistema) && porNombre.get(u.vozSistema).genero !== 'hombre';
+  const usadas = new Set([...u.personajes.map(p => p.voz), ...(sistemaVale ? [u.vozSistema] : [])].filter(Boolean));
   let cambio = false;
   const elegir = (genero, semilla) => {
     const candidatas = voces.filter(v => !genero || v.genero === genero);
@@ -47,9 +57,19 @@ export function asignarVoces(u, voces) {
     p.voz = elegir(sexoDe(p), p.id + p.nombre);
     cambio = true;
   }
-  if (u.tieneSistema && !u.vozSistema) { u.vozSistema = elegir('', 'sistema'); cambio = true; }
+  if (u.tieneSistema && !sistemaVale) {
+    const habia = Boolean(u.vozSistema);
+    u.vozSistema = elegir('mujer', 'sistema');
+    cambio = true;
+    if (habia) for (const e of escenas) {
+      if (e?.voz && (e.lineas || []).some(l => l.tipo === 'sistema')) e.voz.obsoleta = true;
+    }
+  }
   return cambio;
 }
+
+// Todas las escenas de todos los episodios del proyecto.
+export const todasLasEscenas = datos => Object.values(datos?.episodios || {}).flatMap(ep => (ep?.bloques || []).flatMap(b => b?.escenas || []));
 
 // La voz de quien dice una línea.
 export function vozDe(u, linea) {
@@ -107,7 +127,7 @@ export function tramosDeEscena(escena, u) {
 export async function vozEscena({ proyectoId, datos, escena, control, aviso, guardar }) {
   const u = datos.universo;
   const voces = await vocesDisponibles();
-  if (asignarVoces(u, voces) | asignarExtras(u, [escena], voces)) await guardar();
+  if (asignarVoces(u, voces, todasLasEscenas(datos)) | asignarExtras(u, [escena], voces)) await guardar();
   const tramos = tramosDeEscena(escena, u);
   const hechos = [];
   for (const [i, t] of tramos.entries()) {
