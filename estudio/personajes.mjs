@@ -149,7 +149,7 @@ function pintarAhora() {
   if (!voces) {
     vocesDisponibles().then(lista => {
       voces = lista;
-      if (asignarVoces(u, lista)) guardar().catch(() => {});
+      if (asignarVoces(u, lista, Object.keys(d.episodios || {}).flatMap(n => escenasDelEpisodio(d, Number(n))))) guardar().catch(() => {});
       pintarPersonajes();
     }).catch(() => { /* sin lista de voces: se ve la voz asignada en texto */ });
   }
