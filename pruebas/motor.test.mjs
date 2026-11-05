@@ -220,12 +220,15 @@ function escenaDePrueba() {
   return { ...bloque.escenas[0], id: 'e1' };
 }
 function desgloseValido(escena) {
-  const palabras = (escena.accion + ' ' + D.textoEscena(escena)).replace(/[«»"“”¿?¡!.,;:…—–()]/g, ' ').split(/\s+/).filter(Boolean);
+  // Unidades de ancla EN ORDEN: la descripción inicial entera (de ahí el
+  // ancla puede ser cualquier fragmento: no se habla) y las FRASES
+  // COMPLETAS de cada línea (regla vigente: un ancla hablada no parte
+  // una oración, o la validación la rechaza).
+  const unidades = [escena.accion, ...escena.lineas.flatMap(l => D.frasesDelTexto(l.texto))].filter(Boolean);
   // Siete planos (si la escena los admite), para que la proporción 70/30 cuente.
   const n = Math.min(D.maximoPlanos(escena), Math.max(D.minimoPlanos(escena), 7));
-  const paso = Math.floor((palabras.length - 4) / n);
   return { escenas: [{ id: escena.id, presentes: ['c1', 'c2'], planos: Array.from({ length: n }, (_, i) => ({
-    tipo: i % 3 === 2 ? 'cobertura' : 'accion', encuadre: i === 0 ? 'general' : 'medio', ancla: palabras.slice(i * paso, i * paso + 4).join(' '),
+    tipo: i % 3 === 2 ? 'cobertura' : 'accion', encuadre: i === 0 ? 'general' : 'medio', ancla: unidades[Math.min(i, unidades.length - 1)],
     personajes: i === 0 ? ['c1', 'c2'] : ['c1'], entran: [], salen: [], peso: 3,
     estado: 'Lin Feng kneels on the stone floor of the courtyard; Wang Hu stands over him, two steps away.',
     cambio: i ? 'Lin Feng lifts his head a little more than in the previous shot.' : '',
@@ -821,13 +824,77 @@ test('montaje: cada escena dura su narración, los planos sin ancla se reparten 
   assert.ok(zip.textos.some(t => t.nombre === 'guia.txt' && /Toma 001/.test(t.contenido)));
   assert.ok(zip.textos.some(t => t.nombre === 'subtitulos.srt' && /Hola\./.test(t.contenido)), 'el SRT va siempre en el paquete, para CapCut');
   assert.ok(!zip.archivos.some(a => a.nombre.startsWith('voces/')), 'las voces sueltas no van en el ZIP');
-  assert.equal(zip.voces.length, 2, 'las voces van como lista para un solo audio mezclado');
-  // Diálogos sueltos por línea, con su corte dentro del tramo, para el
-  // recorte al ras del servidor.
+  // Las voces van como PIEZAS para un solo audio CONTINUO: sin tiempos
+  // por palabra, cada línea es una pieza con su corte dentro del tramo.
+  assert.equal(zip.voces.length, 2, 'las voces van como piezas para un solo audio continuo');
+  assert.deepEqual(zip.voces[0], { ruta: 'r/v1.wav', desde: 0.1, hasta: 1.9 });
+  // Diálogos sueltos por línea, apuntando a su rango de piezas: el
+  // servidor los arma uniendo las mismas piezas del audio continuo.
   assert.equal(zip.dialogos.length, 2);
-  assert.deepEqual(zip.dialogos[0], { ruta: 'r/v1.wav', desde: 0.1, hasta: 1.9, nombre: 'dialogos/dialogo-001.wav' });
+  assert.deepEqual(zip.dialogos[0], { nombre: 'dialogos/dialogo-001.wav', piezas: [0, 0] });
   assert.equal(zip.dialogos[1].nombre, 'dialogos/dialogo-002.wav');
   assert.ok(zip.textos.some(t => t.nombre === 'guia.txt' && /Diálogo 001 — Lin Feng/.test(t.contenido) && /Diálogo 002 — Sistema/.test(t.contenido)), 'la guía lista los diálogos con su archivo');
+});
+
+test('montaje: el audio continuo parte cada línea por sus pausas internas (piezas)', () => {
+  // Palabras con una pausa de 1,1 s en medio: la línea se parte en dos
+  // piezas y cada borde conserva solo BORDE_PIEZA de la pausa.
+  const palabras = [
+    { inicio: 0.2, fin: 0.8 }, { inicio: 0.9, fin: 1.5 },
+    { inicio: 2.6, fin: 3.2 }, { inicio: 3.3, fin: 4.0 },
+  ];
+  const piezas = MO.piezasDeLinea(palabras, 0, 4.5);
+  assert.equal(piezas.length, 2, 'una pausa mayor que el corte parte la línea');
+  assert.ok(Math.abs(piezas[0].desde - 0.14) < 0.001 && Math.abs(piezas[0].hasta - 1.56) < 0.001, 'la primera pieza llega hasta la última palabra antes de la pausa, más el borde');
+  assert.ok(Math.abs(piezas[1].desde - 2.54) < 0.001 && Math.abs(piezas[1].hasta - 4.06) < 0.001, 'la segunda arranca en la palabra tras la pausa, menos el borde: entre piezas quedan 0,12 s, no 1,1');
+  // Sin pausa larga, una sola pieza; sin palabras, la línea entera.
+  assert.equal(MO.piezasDeLinea([{ inicio: 0.2, fin: 0.8 }, { inicio: 0.9, fin: 1.5 }], 0, 2).length, 1);
+  assert.deepEqual(MO.piezasDeLinea([], 0.5, 2), [{ desde: 0.5, hasta: 2 }]);
+  // En la hoja del ZIP, una línea con pausa interna aporta DOS piezas y
+  // su diálogo suelto apunta a las dos.
+  const datos = { formulario, universo: universoValido(), episodios: { 1: { estado: 'completo', musica: {}, bloques: [{ escenas: [
+    { id: 'e1', titulo: 'La deuda', lineas: [{ tipo: 'dialogo', personaje: 'c1', texto: 'Primera parte. Segunda parte.' }],
+      voz: { version: VZ.VERSION_VOZ, tramos: [{ ruta: 'r/v1.wav', segundos: 4.5, lineas: [0], tiempos: [{ inicio: 0, fin: 4.5 }], palabras }] },
+      planos: [{ peso: 1, tipo: 'accion', imagen: { ruta: 'r/p1.png' } }] },
+  ] }] } } };
+  const zip = MO.hojaDeZip(datos, 1);
+  assert.equal(zip.voces.length, 2, 'la línea partida aporta dos piezas al audio continuo');
+  assert.deepEqual(zip.dialogos[0].piezas, [0, 1], 'y su diálogo suelto cubre las dos');
+});
+
+test('video: en pensamiento la narración no sale de nadie en pantalla (labios quietos)', () => {
+  const u = universoValido();
+  const datos = { universo: u };
+  const escena = { lineas: [
+    { tipo: 'dialogo', personaje: 'c2', texto: 'Ríndete de una vez.' },
+    { tipo: 'pensamiento', personaje: 'c1', texto: 'Si me rindo ahora, lo pierdo todo.' },
+  ] };
+  const vozP = V.vozDelPlano(datos, escena, { ancla: 'Si me rindo ahora' });
+  const piensa = V.promptVideo({ movimiento: 'Lin Feng looks down.' }, u.escenarios[0], { voz: vozP });
+  assert.match(piensa, /voice INSIDE Lin Feng's head/, 'la narración es una voz dentro de la cabeza');
+  assert.match(piensa, /lips pressed together and perfectly still/, 'labios pegados y quietos todo el clip');
+  assert.ok(piensa.endsWith(V.AUDIO_EN_OFF), 'el audio se describe como voz en off que no sale de nadie visible');
+  assert.match(V.negativoVideo({ movimiento: '' }, u.escenarios[0], { voz: vozP }), /lip movement/, 'el movimiento de labios va prohibido por su nombre');
+  const vozD = V.vozDelPlano(datos, escena, { ancla: 'Ríndete de una vez' });
+  assert.ok(!V.negativoVideo({ movimiento: '' }, u.escenarios[0], { voz: vozD }).includes('lip movement'), 'en diálogo la boca SÍ se mueve: no se prohíbe');
+});
+
+test('desglose: un ancla que parte una frase se rechaza; la de frases completas pasa', () => {
+  const u = universoValido();
+  const escena = escenaDePrueba();
+  escena.lineas = [
+    { tipo: 'dialogo', personaje: 'c2', texto: 'Entrégame la caja ahora mismo. No tienes salida, muchacho.' },
+    { tipo: 'pensamiento', personaje: 'c1', texto: 'Si la entrego, pierdo todo lo que tengo.' },
+  ];
+  const bueno = desgloseValido(escena);
+  bueno.escenas[0].planos[0].ancla = 'Entrégame la caja ahora mismo.';
+  assert.ok(!D.validarDesglose(bueno, [escena], u).problemas.some(p => p.includes('parte una frase')), 'una oración completa es un ancla válida');
+  const partido = desgloseValido(escena);
+  partido.escenas[0].planos[0].ancla = 'Entrégame la caja ahora';
+  const r = D.validarDesglose(partido, [escena], u);
+  assert.ok(r.problemas.some(p => p.includes('parte una frase')), 'media oración se rechaza: la narración completa no cabría en el plano');
+  const fallos = D.fallosDeCampo(r.problemas.filter(p => p.includes('parte una frase')));
+  assert.equal(fallos?.[0]?.campo, 'ancla', 'y el corrector dirigido puede arreglarla sin rehacer el desglose');
 });
 
 test('montaje anclado: la frase siguiente entra sobre la reacción y su plano llega un poco después', () => {
@@ -914,21 +981,24 @@ test('guion: la apertura entra con la voz del protagonista desde el segundo 0', 
   assert.ok(G.validarBloque(tarde, ctx()).problemas.some(p => p.includes('voz del protagonista')));
 });
 
-test('inspiración: Gemini mira la primera hora en 3 trozos de 20 min y se destila el concepto', async () => {
+test('inspiración: Gemini mira el video COMPLETO en trozos de 20 min y se arma su historia, no un concepto', async () => {
   const INS = await import('../estudio/inspiracion.mjs');
-  assert.deepEqual(INS.TROZOS_VIDEO, [[0, 1200], [1200, 2400], [2400, 3600]], 'solo la primera hora, en trozos de 20 minutos');
-  const destilacion = texto({ premisa: 'Un cocinero de hoy abre sin querer un portal en su restaurante que conecta con una cocina de otra época: intercambia platos por objetos valiosos, se hace famoso en los dos mundos y crece hasta volverse rico, mientras cada mundo le pide más.', motor: ['La voz del protagonista entra en el primer segundo contando su problema', 'Cada intercambio termina en una ganancia visible', 'Un giro o recompensa cada pocos minutos'] });
+  assert.equal(INS.TROZO_S, 1200, 'cada mirada dura 20 minutos');
+  assert.deepEqual(INS.trozosDeVideo(3600), [[0, 1200], [1200, 2400], [2400, 3600]], 'una hora son 3 trozos');
+  assert.equal(INS.trozosDeVideo(7839).length, 7, 'un video de 2 h 10 min se mira ENTERO: 7 trozos');
+  assert.equal(INS.trozosDeVideo(999999).length, INS.MAX_TROZOS, 'con un tope de seguridad');
+  const historiaLarga = 'El protagonista despierta arruinado en un pueblo que no conoce, con una libreta que convierte lo que escribe en objetos reales. Primero cambia comida por monedas, luego paga la deuda de su familia adoptiva, después el terrateniente intenta robarle la libreta y él lo desenmascara ante todo el pueblo. Cada ciclo gana más, pero la libreta se agota: al final del video sacrifica su última página para salvar a la muchacha que lo ayudó desde el primer día.';
   respuestas = [
-    { cuerpo: { titulo: 'Video viral' } },
-    { cuerpo: { resumen: 'Resumen del primer trozo: la apertura y el primer intercambio.' } },
-    { cuerpo: { resumen: 'Resumen del segundo trozo: el mecanismo se repite y crece.' } },
-    { cuerpo: { resumen: 'Resumen del tercer trozo: la fama llega a los dos mundos.' } },
-    destilacion,
+    { cuerpo: { titulo: 'Video viral', duracion: 3600 } },
+    { cuerpo: { resumen: 'Historia del primer trozo: el despertar y la primera ganancia con la libreta.' } },
+    { cuerpo: { resumen: 'Historia del segundo trozo: paga la deuda y el mecanismo crece.' } },
+    { cuerpo: { resumen: 'Historia del tercer trozo: el robo, la caída y el sacrificio final.' } },
+    texto({ historia: historiaLarga }),
   ];
-  const { texto: concepto, titulo } = await INS.conceptoDesdeEnlace('https://youtu.be/abcdefghijk', { aviso: () => {} });
+  const { texto: historia, titulo } = await INS.historiaDesdeEnlace('https://youtu.be/abcdefghijk', { aviso: () => {} });
   assert.equal(titulo, 'Video viral');
-  assert.match(concepto, /portal en su restaurante/);
-  assert.match(concepto, /Motor de la historia/);
+  assert.match(historia, /libreta/);
+  assert.match(historia, /sacrifica su última página/, 'vuelve LA HISTORIA del video, en orden, no una premisa suelta');
   assert.equal(llamadas[0].url, '/api/inspiracion');
   assert.deepEqual(llamadas.slice(1, 4).map(l => [l.url, l.cuerpo.desde, l.cuerpo.hasta]), [
     ['/api/inspiracion', 0, 1200],
@@ -937,17 +1007,18 @@ test('inspiración: Gemini mira la primera hora en 3 trozos de 20 min y se desti
   ]);
 });
 
-test('inspiración: si el video dura menos de una hora, se destila con los trozos que haya', async () => {
+test('inspiración: si el video dura menos, se piden solo los trozos que lo cubren', async () => {
   const INS = await import('../estudio/inspiracion.mjs');
+  const historiaCorta = 'Una cocinera despedida abre un puesto callejero con la receta de su abuela, el dueño del restaurante que la despidió intenta cerrarlo dos veces y ella lo supera con la fila de clientes que crece cada día, hasta que al final del video le ofrecen sociedad en el local de enfrente y acepta con sus condiciones.';
   respuestas = [
-    { cuerpo: { titulo: 'Video corto' } },
-    { cuerpo: { resumen: 'Resumen del primer trozo: apertura y mecanismo.' } },
-    { cuerpo: { resumen: 'Resumen del segundo trozo: el cierre.' } },
-    { estado: 500, cuerpo: { error: 'fuera de rango' } },
-    texto({ premisa: 'Una historia corta destilada de solo dos trozos de video, con su mecanismo claro y su crecimiento completo hasta el cierre del primer arco.', motor: ['Gancho en el primer segundo', 'El protagonista narra en primera persona', 'Recompensa cada pocos minutos'] }),
+    { cuerpo: { titulo: 'Video corto', duracion: 2000 } },
+    { cuerpo: { resumen: 'Historia del primer trozo: el despido y el puesto.' } },
+    { cuerpo: { resumen: 'Historia del segundo trozo: los dos intentos de cierre y la oferta.' } },
+    texto({ historia: historiaCorta }),
   ];
-  const { texto: concepto } = await INS.conceptoDesdeEnlace('https://youtu.be/abcdefghijk', { aviso: () => {} });
-  assert.match(concepto, /dos trozos/);
+  const { texto: historia } = await INS.historiaDesdeEnlace('https://youtu.be/abcdefghijk', { aviso: () => {} });
+  assert.match(historia, /cocinera despedida/);
+  assert.equal(llamadas.filter(l => l.cuerpo?.desde !== undefined).length, 2, 'un video de 2000 s son solo 2 trozos');
 });
 
 test('sesión: cada petición lleva el token vigente y un 401 fuerza uno nuevo y repite una vez', async () => {
