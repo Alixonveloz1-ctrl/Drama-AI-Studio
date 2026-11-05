@@ -2,12 +2,13 @@
 // INSPIRACIÓN — dos modos en un solo endpoint (el plan de Vercel
 // admite 12 funciones y no cabe una más):
 //
-//  · Sin trozo ({enlace}): devuelve el TÍTULO del video, para
-//    enseñar de qué video salió el concepto. Es decorativo: si la
-//    página no se puede abrir, vuelve vacío y el flujo sigue.
+//  · Sin trozo ({enlace}): la SONDA — devuelve el TÍTULO del video
+//    (para enseñar de qué video salió la historia) y su DURACIÓN,
+//    que decide cuántos trozos hacen falta. Si la página no se
+//    puede abrir, vuelve vacío y el estudio avanza por oleadas.
 //  · Con trozo ({enlace, desde, hasta}): Gemini MIRA ese trozo
-//    del video y devuelve su resumen — la historia que se ve y se
-//    escucha, el mecanismo del protagonista y el gancho.
+//    del video y devuelve su historia con detalle: qué pasa en
+//    orden, los giros y lo que el protagonista gana o pierde.
 //
 // Por qué el video lo mira Gemini, y no se leen subtítulos (cada
 // punto costó un fallo real, todos el 2026-11-04):
@@ -21,11 +22,17 @@
 //    de video (comprobado en la consola de Google del dueño), con
 //    la cuenta de Google Cloud que la app ya usa para todo: sin
 //    servicios externos y sin la sesión de YouTube de nadie.
-//  · El video entero no cabe: una compilación de 2 h son ~2,3
-//    millones de tokens y el límite es 1 millón (error real de la
-//    consola). Por trozos de 20 minutos (~354 mil tokens) cabe de
-//    sobra. El dueño decidió: solo se mira la PRIMERA HORA, en 3
-//    trozos de 20 minutos, que es más que suficiente.
+//  · El video entero no cabe en una mirada: una compilación de 2 h
+//    son ~2,3 millones de tokens y el límite es 1 millón (error real
+//    de la consola). Por trozos de 20 minutos (~354 mil tokens) cabe
+//    de sobra. El dueño decidió primero mirar solo la primera hora y
+//    el 2026-11-04 lo cambió: se mira el video COMPLETO, en trozos de
+//    20 minutos; la duración sale del html de la página del video.
+//  · Lo que vuelve NO es un concepto destilado: es la HISTORIA del
+//    video, su desarrollo en orden, que el estudio copia como encargo
+//    del guion (solo cambian los personajes y los lugares). La
+//    destilación a «premisa y motor» producía tres ideas que se
+//    desfasaban de la historia: el dueño la revocó ese mismo día.
 //  · Resumir un trozo de video tarda bastante más que un texto:
 //    el límite interno es amplio y la función tiene maxDuration
 //    300 en vercel.json.
@@ -38,13 +45,15 @@ const yt = require('./_lib/youtube');
 const LIMITE_MS = 280000;
 const MAX_TROZO_S = 1500;   // 25 min: margen sobre los 20 que pide el estudio
 
-const SISTEMA = 'Eres un analista de dramas cortos que funcionan en redes. Ves y escuchas un trozo de un video para quedarte con su CONCEPTO: la premisa general de la historia y el motor que la hace avanzar. No copias frases del video ni nombres propios: describes la forma de la historia, no su texto.';
+const SISTEMA = 'Eres un analista de dramas cortos que funcionan en redes. Ves y escuchas un trozo de un video para contar su HISTORIA con detalle: qué pasa, en qué orden, qué gana y qué pierde cada uno. No copias las frases del video ni usas sus nombres propios: los personajes se nombran por su papel y lo que dicen se cuenta con palabras propias.';
 
 function promptTrozo(desde, hasta) {
-  return `Mira y escucha con atención este trozo de un drama corto que funciona muy bien (del minuto ${Math.round(desde / 60)} al minuto ${Math.round(hasta / 60)} del video). Resume SOLO lo que se aprende de este trozo, en español y en pocas líneas:
-- La historia general: qué pasa en este tramo, en orden (la trama, sin diálogos copiados).
-- El mecanismo: qué consigue el protagonista, qué ventaja especial usa y qué gana con ello en este tramo.
-- El gancho: cómo arranca o cómo cierra este tramo, y cada cuánto llega un giro o una recompensa.`;
+  return `Mira y escucha con atención este trozo de un drama corto que funciona muy bien (del minuto ${Math.round(desde / 60)} al minuto ${Math.round(hasta / 60)} del video). Cuenta LA HISTORIA que pasa en este trozo, en español, con detalle y en este orden:
+- Qué pasa, paso a paso: cada escena importante, qué hace cada personaje y qué consigue o pierde con ello.
+- Los giros: cada sorpresa, traición, revelación o recompensa de este tramo, en el orden en que llegan.
+- El mecanismo del protagonista: qué ventaja especial usa en este tramo y qué gana exactamente con ella (dinero, objetos, respeto, poder, aliados…).
+- Cómo cierra el trozo: en qué punto de tensión o de ganancia queda la historia.
+Nombra a los personajes por su papel (el protagonista, su esposa, el villano, el suegro…), nunca por sus nombres del video, y cuenta lo que dicen con palabras propias, sin copiar sus frases.`;
 }
 
 function extraerTexto(datos) {
@@ -127,13 +136,17 @@ module.exports = puerta({ metodos: ['POST'] }, async (req, { google }) => {
     throw new ErrorEstudio('Ese enlace no es de YouTube. Pega el enlace del video que quieres estudiar.', { estado: 400, tipo: 'peticion' });
   }
   if (req.body.desde !== undefined || req.body.hasta !== undefined) return resumirTrozo(req, google, id);
-  let titulo = '';
+  // Sonda: el título (para enseñar de qué video salió la historia) y la
+  // DURACIÓN, que decide cuántos trozos hacen falta para mirarlo entero.
+  let titulo = '', duracion = 0;
   try {
     const r = await fetch('https://www.youtube.com/watch?v=' + id + '&hl=es', {
       headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36' },
       signal: AbortSignal.timeout(15000),
     });
-    titulo = yt.tituloDeHtml(await r.text());
-  } catch { /* el título es opcional */ }
-  return { titulo };
+    const html = await r.text();
+    titulo = yt.tituloDeHtml(html);
+    duracion = yt.duracionDeHtml(html);
+  } catch { /* la sonda es opcional: sin duración, el estudio avanza por oleadas */ }
+  return { titulo, duracion };
 });
