@@ -3,6 +3,13 @@
 //
 // Cola de la sección 18:
 //  · Nada en paralelo: un elemento a la vez.
+//  · Las peticiones de imagen y de arranque de video salen AL RITMO
+//    de la cuota de Google (2 por minuto): cada una espera su turno
+//    en una cola ordenada y sale en cuanto hay hueco, en vez de
+//    lanzarse, chocar con el límite y esperar a ciegas. Vale igual
+//    para los lotes y para los botones manuales: tocar «Generar» no
+//    lanza la petición al instante si la cuota está llena; queda en
+//    cola y sale cuando le toca.
 //  · Un 429 es una espera: 60, 120, 180, 240 y 300 s, con cuenta atrás.
 //  · Un bloqueo sale a la primera y se dice (reintentarlo lo vuelve a
 //    bloquear y gasta cuota de verdad).
@@ -38,8 +45,62 @@ export function motivoCorto(e) {
   return `${String(e?.message || 'Fallo pasajero.').replace(/\s+$/, '')}${google ? ` (Google: ${google})` : ''}`;
 }
 
+// ─── Ritmo de cuota: salir al ritmo que Google permite ───
+// La cuota de generación es de 2 peticiones por minuto (el modelo de
+// imagen y el arranque de Veo). El ritmo anota cuándo salió cada
+// petición y hace esperar a la siguiente SOLO lo que falta para que
+// la más vieja de las últimas «maximo» cumpla la ventana: las dos
+// primeras salen seguidas y después se abre un hueco cada media
+// ventana. Quien espera conserva su turno (cola en orden de llegada),
+// así un lote y los toques manuales comparten la misma fila.
+export function crearRitmo({ maximo = 2, ventanaMs = 60000, ahora = () => Date.now() } = {}) {
+  const salidas = [];
+  let cadena = Promise.resolve();
+  function faltaMs() {
+    const t = ahora();
+    while (salidas.length && t - salidas[0] >= ventanaMs) salidas.shift();
+    return salidas.length < maximo ? 0 : Math.max(0, ventanaMs - (t - salidas[0]));
+  }
+  async function turno({ control, aviso } = {}) {
+    let soltar;
+    const miSalida = new Promise(r => { soltar = r; });
+    const anterior = cadena;
+    cadena = anterior.then(() => miSalida);
+    await anterior;
+    try {
+      let ultimoAviso = -1;
+      for (;;) {
+        if (control?.detenido) throw errorDetenido();
+        const falta = faltaMs();
+        if (!falta) { salidas.push(ahora()); return; }
+        const s = Math.ceil(falta / 1000);
+        if (s !== ultimoAviso) {
+          ultimoAviso = s;
+          aviso?.(`En cola por la cuota de Google (${maximo} por minuto): esta generación sale en ${s} s, en cuanto haya hueco.`);
+        }
+        await new Promise(listo => setTimeout(listo, Math.min(250, falta)));
+      }
+    } finally { soltar(); }
+  }
+  return { turno, faltaMs };
+}
+
+// Solo la imagen y el arranque de video comparten esta cuota; la voz,
+// la música, la transcripción y el montaje tienen las suyas y no se
+// frenan aquí.
+let ventanaRitmoMs = 60000;
+export function fijarVentanaRitmo(ms) { ventanaRitmoMs = ms; }
+const RITMOS = new Map();
+function ritmoDe(ruta) {
+  if (ruta !== '/api/imagen' && ruta !== '/api/video-inicio') return null;
+  if (!RITMOS.has(ruta)) RITMOS.set(ruta, crearRitmo({ ventanaMs: ventanaRitmoMs }));
+  return RITMOS.get(ruta);
+}
+
 // Una petición de medios con la política de esperas de imagen y video.
 export async function pedirMedio(ruta, cuerpo, { control, aviso } = {}) {
+  const ritmo = ritmoDe(ruta);
+  if (ritmo) await ritmo.turno({ control, aviso });
   let cuota = 0, pasajero = 0;
   for (;;) {
     if (control?.detenido) throw errorDetenido();
