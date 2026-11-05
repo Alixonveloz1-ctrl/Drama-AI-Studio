@@ -385,17 +385,18 @@ test('inspiración (modo trozo): Gemini recibe el enlace con su trozo (startOffs
   assert.equal(trozoMalo.statusCode, 400);
 });
 
-test('inspiración: el título sale de la página del video y un enlace que no es de YouTube se rechaza', async () => {
+test('inspiración: el título y la duración salen de la página del video y un enlace que no es de YouTube se rechaza', async () => {
   conCuentaDeServicio();
   const endpoint = require('../api/inspiracion');
   google_responde = async url => {
-    if (url.includes('youtube.com/watch')) return new Response('<html><head><meta property="og:title" content="Mi drama viral"></head></html>');
+    if (url.includes('youtube.com/watch')) return new Response('<html><head><meta property="og:title" content="Mi drama viral"></head><body>"lengthSeconds":"7839"</body></html>');
     throw new Error('inesperado ' + url);
   };
   const salida = respuesta();
   await endpoint(conSesion({ body: { enlace: 'https://youtu.be/abcdefghijk' } }), salida);
   assert.equal(salida.statusCode, 200);
   assert.equal(salida.valor.titulo, 'Mi drama viral');
+  assert.equal(salida.valor.duracion, 7839, 'la duración decide cuántos trozos hacen falta para mirar el video entero');
   const malo = respuesta();
   await endpoint(conSesion({ body: { enlace: 'https://vimeo.com/123' } }), malo);
   assert.equal(malo.statusCode, 400);
@@ -930,6 +931,21 @@ test('hoja de montaje: el guion lo escribe el servidor, es bash válido y ningú
   const rutaZip = path.join(require('node:os').tmpdir(), 'montar-zip-prueba.sh');
   fs.writeFileSync(rutaZip, zipVocesHecho.script);
   assert.equal(require('node:child_process').spawnSync('bash', ['-n', rutaZip]).status, 0, 'el guion del ZIP es un shell válido');
+  // ZIP con PIEZAS: el audio continuo se corta por piezas y se une sin huecos.
+  const zipPiezas = hojaLib.validar('pimagen0001', { modo: 'zip', episodio: 2,
+    archivos: [{ ruta: base + 'plano-e1-2.png', nombre: 'imagenes/toma-001.png' }],
+    textos: [{ nombre: 'guion.txt', contenido: 'x' }],
+    voces: [{ ruta: base + 'voz-e1-1.wav', desde: 0.1, hasta: 1.9 }, { ruta: base + 'voz-e1-1.wav', desde: 2.5, hasta: 4 }],
+    dialogos: [{ nombre: 'dialogos/dialogo-001.wav', piezas: [0, 1] }] });
+  const zipPiezasHecho = hojaLib.construir(zipPiezas, { bucket: 'b', carpeta: 'c' });
+  assert.match(zipPiezasHecho.script, /a\/piezas\/p0001\.wav/, 'cada pieza se corta a su archivo');
+  assert.match(zipPiezasHecho.script, /-f concat -safe 0 -i lista-voces\.txt -c copy material\/voces\.wav/, 'las piezas se unen en un solo voces.wav continuo, sin huecos');
+  assert.match(zipPiezasHecho.script, /material\/dialogos\/dialogo-001\.wav/, 'el diálogo suelto se arma con las piezas de su línea');
+  assert.equal(zipPiezasHecho.descargas.filter(([, d]) => d === 'a/v0001.wav').length, 1, 'cada archivo de voz se descarga una sola vez aunque tenga muchas piezas');
+  assert.throws(() => hojaLib.validar('pimagen0001', { modo: 'zip', episodio: 1, archivos: [{ ruta: base + 'a.png', nombre: 'imagenes/toma-001.png' }], textos: [], voces: [{ ruta: base + 'v.wav', desde: 0, hasta: 1 }], dialogos: [{ nombre: 'dialogos/dialogo-001.wav', piezas: [0, 3] }] }), 'un diálogo que apunta fuera de las piezas se rechaza');
+  const rutaZipPiezas = path.join(require('node:os').tmpdir(), 'montar-zip-piezas-prueba.sh');
+  fs.writeFileSync(rutaZipPiezas, zipPiezasHecho.script);
+  assert.equal(require('node:child_process').spawnSync('bash', ['-n', rutaZipPiezas]).status, 0, 'el guion del ZIP de piezas es un shell válido');
   assert.throws(() => hojaLib.validar('pimagen0001', { modo: 'zip', episodio: 1, archivos: [{ ruta: base + 'a.png', nombre: '../../etc/passwd' }] }));
 });
 
