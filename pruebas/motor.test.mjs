@@ -355,6 +355,31 @@ test('desglose: la clasificación separa fallos de campo de fallos estructurales
   assert.equal(D.fallosDeCampo(['el estado del plano 6 de la escena e1 no dice dónde está Lin', 'la escena e1 tiene 2 planos y necesita al menos 5']), null, 'si hay algo estructural, no vale la corrección dirigida');
 });
 
+test('desglose: en una llamada de una sola escena se acepta la respuesta aunque la etiqueta difiera o venga en trozos', () => {
+  const e = escenaDePrueba();
+  const u = universoValido();
+  const renombrada = desgloseValido(e);
+  renombrada.escenas[0].id = 'e1-parte1';
+  const r1 = D.validarDesglose(renombrada, [e], u);
+  assert.deepEqual(r1.problemas, [], 'la etiqueta distinta no tumba una llamada de una escena');
+  assert.equal(r1.resultado.e1.length, renombrada.escenas[0].planos.length);
+  // En trozos: los planos de todos los trozos se unen en orden.
+  const base = desgloseValido(e).escenas[0];
+  const corte = Math.floor(base.planos.length / 2);
+  const trozos = { escenas: [
+    { id: 'e1a', presentes: base.presentes, planos: base.planos.slice(0, corte) },
+    { id: 'e1b', presentes: base.presentes, planos: base.planos.slice(corte) },
+  ] };
+  const r2 = D.validarDesglose(trozos, [e], u);
+  assert.deepEqual(r2.problemas, [], 'los trozos se unen como una sola escena');
+  assert.equal(r2.resultado.e1.length, base.planos.length);
+  // En una llamada de VARIAS escenas la etiqueta sigue siendo estricta.
+  const e2 = { ...escenaDePrueba(), id: 'e2' };
+  const grupo = { escenas: [renombrada.escenas[0], desgloseValido(e2).escenas[0]] };
+  const r3 = D.validarDesglose(grupo, [e, e2], u);
+  assert.ok(r3.problemas.some(p => p.includes('falta el desglose de la escena e1')), 'con varias escenas, una etiqueta distinta sí se rechaza');
+});
+
 test('guion: las escenas se piden cortas (25 a 55 palabras, unos 20 segundos)', () => {
   const datos = { formulario, universo: universoValido(), biblia: {}, episodios: {} };
   const { mensaje } = P.promptBloque(datos, 1, 0, P.planDelEpisodio(formulario));
