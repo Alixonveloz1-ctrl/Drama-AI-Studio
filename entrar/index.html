@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#09090d">
+<meta name="robots" content="noindex, nofollow">
+<title>Entrar · Drama AI Studio</title>
+<link rel="icon" href="/estudio/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/estudio/estilos.css">
+<style>
+  .entrar { padding-bottom: calc(32px + env(safe-area-inset-bottom)); }
+  .entrar .portada { min-height: min(62vh, 520px); }
+  .entrar .eyebrow { color: var(--oro); letter-spacing: .16em; font-size: 11px; font-weight: 600; margin: 0 0 10px; }
+  #estado { font-size: 14px; line-height: 1.6; min-height: 24px; color: var(--oro-claro); overflow-wrap: anywhere; margin: 14px 0 0; }
+  .privado { margin-top: 18px; font-size: 13px; line-height: 1.6; color: var(--tenue); text-align: center; }
+</style>
+</head>
+<body>
+<main class="app entrar">
+  <header class="header">
+    <div class="marca"><img src="/estudio/logo.svg" alt=""><div class="marca-texto"><span>Drama</span><span class="oro">AI Studio</span></div></div>
+  </header>
+  <section class="portada">
+    <p class="eyebrow">TU ESTUDIO DE DRAMAS</p>
+    <h2>Vuelve a tus <span class="oro">historias</span>.</h2>
+    <p>Dramas cortos con inteligencia artificial, desde tu teléfono.</p>
+    <div><button class="btn" id="entrar" disabled>Entrar con Google</button></div>
+    <p id="estado" role="status" aria-live="polite">Preparando el acceso…</p>
+  </section>
+  <p class="privado">Estudio privado · Solo la cuenta autorizada puede entrar.</p>
+</main>
+<script type="module" src="/estudio/entrar.mjs"></script>
+</body>
+</html>
