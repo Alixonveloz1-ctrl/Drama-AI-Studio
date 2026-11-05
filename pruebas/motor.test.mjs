@@ -551,7 +551,8 @@ test('el director de arte puede corregir el estado y el cambio de un plano, y ve
   assert.equal(e.planos[1].imagenObsoleta, true);
 });
 
-import { pedirMedio } from '../estudio/medios.mjs';
+import { pedirMedio, crearRitmo, fijarVentanaRitmo } from '../estudio/medios.mjs';
+fijarVentanaRitmo(60); // en las pruebas la ventana de cuota es de 60 ms: el ritmo no frena la batería
 test('medios: la espera dice el motivo real y un corte por tiempo no se repite solo', async () => {
   respuestas = [{ estado: 502, cuerpo: { error: 'Google no generó la imagen (código 503).', tipo: 'google', detalleGoogle: '503 — The model is overloaded.' } }, { cuerpo: { ruta: 'r/x.png' } }];
   const avisos = [];
@@ -563,6 +564,27 @@ test('medios: la espera dice el motivo real y un corte por tiempo no se repite s
   respuestas = [{ estado: 504, cuerpo: { error: 'Google tardó más de 47 s', tipo: 'tiempo' } }];
   await assert.rejects(pedirMedio('/api/imagen', { a: 1 }, { control: crearControl() }), e => e.tipo === 'tiempo');
   assert.equal(llamadas.length, 1, 'no se paga dos veces');
+});
+
+test('ritmo de cuota: las dos primeras salen seguidas, la tercera espera su hueco y el orden se conserva', async () => {
+  const ritmo = crearRitmo({ maximo: 2, ventanaMs: 400 });
+  const orden = [], marcas = [];
+  const t0 = Date.now();
+  await Promise.all([1, 2, 3].map(async n => { await ritmo.turno({}); orden.push(n); marcas.push(Date.now() - t0); }));
+  assert.deepEqual(orden, [1, 2, 3], 'la cola conserva el orden de llegada (lote y manual comparten fila)');
+  assert.ok(marcas[1] < 250, 'las dos primeras salen casi al instante');
+  assert.ok(marcas[2] >= 350, 'la tercera espera a que la primera petición cumpla la ventana');
+  await new Promise(r => setTimeout(r, 500));
+  assert.equal(ritmo.faltaMs(), 0, 'pasada la ventana hay hueco otra vez');
+});
+
+test('ritmo de cuota: Detener corta también la espera en cola y la fila sigue', async () => {
+  const ritmo = crearRitmo({ maximo: 1, ventanaMs: 60000 });
+  await ritmo.turno({});
+  const control = crearControl();
+  const enCola = ritmo.turno({ control });
+  setTimeout(() => control.detener(), 60);
+  await assert.rejects(enCola, e => e.detenido);
 });
 
 test('video: el audio prohíbe también gritos y jadeos, y el negativo los lista', () => {
