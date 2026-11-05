@@ -124,7 +124,7 @@ DOS TIPOS DE PLANO (el ritmo sale de alternarlos):
 - Proporción objetivo: 70 % acción y 30 % cobertura, contando planos.
 
 REGLAS DEL DESGLOSE:
-- Cada plano lleva "ancla": de 4 a 14 palabras CONSECUTIVAS copiadas literalmente del texto de la escena (de sus líneas o de lo que se ve al empezar). Las anclas siguen el orden del texto: un plano nunca muestra algo que ocurre después de su ancla.
+- Cada plano lleva "ancla": palabras CONSECUTIVAS copiadas literalmente del texto de la escena. Si el ancla sale de una LÍNEA HABLADA (diálogo, pensamiento o Sistema), debe cubrir FRASES COMPLETAS de esa línea: empieza donde empieza una oración (al principio de la línea o justo tras un punto, una exclamación o una interrogación) y termina donde termina una oración (en su signo de cierre). NUNCA partas una oración por la mitad: si una oración es larga, el plano la lleva ENTERA, aunque pase de 14 palabras; si una línea tiene varias oraciones cortas, un plano puede llevar dos o tres seguidas. Esto es innegociable: la voz de ese plano dice el ancla entera, y una frase partida no cabe al montar la narración completa. Si el ancla sale de «lo que se ve al empezar» (la descripción, que no se habla), basta un fragmento consecutivo de 4 a 14 palabras. Las anclas siguen el orden del texto: un plano nunca muestra algo que ocurre después de su ancla.
 - Estado físico acumulado: entre planos se conservan posición, ropa, lesiones, objetos y quién está presente. Un corte cambia el encuadre, no la realidad.
 - Peso editorial de 1 a 5 por plano: la frase o la acción principal pesa más que un detalle o una reacción rápida.
 - Personajes visibles: ids exactos del reparto (o de una variante), como máximo 3 por plano.
@@ -194,6 +194,30 @@ function encuadreDe(valor) {
   return '';
 }
 
+// Las oraciones de un texto, cortando tras cada signo de cierre (con su
+// comilla de cierre si la lleva). Sirve para juzgar las anclas: un ancla
+// que sale de una línea hablada debe cubrir frases COMPLETAS, nunca
+// partir una oración (decisión del dueño: al montar la narración
+// completa, media frase no cabe en su plano).
+export function frasesDelTexto(texto) {
+  return String(texto || '').match(/[^.!?…]+[.!?…]+[»”"']*|[^.!?…]+$/g)?.map(f => f.trim()).filter(Boolean) || [];
+}
+
+// Todos los tramos de frases completas y consecutivas de una línea,
+// normalizados: el conjunto contra el que se comprueba un ancla.
+export function tramosDeFrases(linea) {
+  const frases = frasesDelTexto(linea?.texto);
+  const tramos = new Set();
+  for (let a = 0; a < frases.length; a++) {
+    let junto = '';
+    for (let b = a; b < frases.length; b++) {
+      junto = (junto + ' ' + frases[b]).trim();
+      tramos.add(normalizar(junto));
+    }
+  }
+  return tramos;
+}
+
 export function validarDesglose(json, escenas, universo) {
   const problemas = [];
   const ids = new Set([...universo.personajes.map(p => p.id), ...(universo.variantes || []).map(v => v.id)]);
@@ -233,17 +257,33 @@ export function validarDesglose(json, escenas, universo) {
     if (planos.length > maximoPlanos(escena)) problemas.push(`la escena ${escena.id} tiene demasiados planos (${planos.length}; máximo ${maximoPlanos(escena)})`);
     // Lo que se ve al empezar va primero: es el principio de la escena.
     const texto = normalizar(escena.accion + ' ' + textoEscena(escena));
+    // Frases completas: los tramos válidos de cada línea hablada y el
+    // texto de la descripción inicial (de ahí el ancla SÍ puede ser un
+    // fragmento, porque no se habla).
+    const tramosFrases = new Set(escena.lineas.flatMap(l => [...tramosDeFrases(l)]));
+    const textoAccion = normalizar(escena.accion);
+    const lineasNorm = escena.lineas.map(l => normalizar(l.texto));
     let desde = 0;
     // Quién está en la escena en cada momento.
     const actual = new Set(presentes);
     const algunaVez = new Set(presentes);
     planos.forEach((p, i) => {
       const ancla = normalizar(p.ancla);
-      const valida = contarPalabras(p.ancla) >= 3;
+      // Una frase completa de una línea vale como ancla aunque tenga
+      // menos de 3 palabras («¡Suéltala!», «Imposible.»): es literal y
+      // es justo lo que la regla de frases completas pide.
+      const valida = contarPalabras(p.ancla) >= 3 || tramosFrases.has(ancla);
       const pos = valida ? texto.indexOf(ancla, desde) : -1;
       if (pos >= 0) desde = pos;
       else if (valida && texto.includes(ancla)) problemas.push(`${donde(i)} retrocede respecto al orden del texto`);
       else problemas.push(`el ancla del plano ${i + 1} de la escena ${escena.id} no está copiada literalmente del texto`);
+      // Si el ancla está dentro de una línea hablada pero no cubre
+      // frases completas de ella, parte una oración: se rechaza (la voz
+      // del plano dice el ancla entera y la narración completa no cabe).
+      // Las anclas de la descripción inicial quedan exentas: no se hablan.
+      if (valida && pos >= 0 && ancla && !tramosFrases.has(ancla) && !textoAccion.includes(ancla) && lineasNorm.some(t => t.includes(ancla))) {
+        problemas.push(`el ancla del plano ${i + 1} de la escena ${escena.id} parte una frase: debe cubrir frases completas de su línea`);
+      }
       if (p.prompt.length < 40) problemas.push(`${donde(i)} no tiene un prompt suficiente`);
       if (/looking at (?:the )?camera|looks at (?:the )?camera|faces the camera|addressing the viewer/i.test(p.prompt)) problemas.push(`en ${donde(i)} alguien mira a cámara`);
       if (p.tipo === 'accion' && !p.movimiento) problemas.push(`el plano de acción ${i + 1} de la escena ${escena.id} no dice qué movimiento hace el video`);
@@ -307,6 +347,7 @@ Si un plano está bien, no lo incluyas. "revisadas" lista TODAS las escenas que 
 // el resto del desglose. Todo lo demás (anclas, orden, número de planos,
 // presencias) es estructural y se resuelve reintentando con la explicación.
 const RE_CAMPO = [
+  { campo: 'ancla', re: /^el ancla del plano (\d+) de la escena (\S+) parte una frase/ },
   { campo: 'estado', re: /^el estado del plano (\d+) de la escena (\S+) no dice dónde está/ },
   { campo: 'estado', re: /^el plano (\d+) de la escena (\S+) no describe en "estado"/ },
   { campo: 'cambio', re: /^el plano (\d+) de la escena (\S+) no dice en "cambio"/ },
@@ -364,7 +405,7 @@ ${fichaVisual(u)}
 
 ${bloques}
 
-Devuelve JSON: {"correcciones":[{"escena":"${fallos[0].escena}","plano":1,"estado":"estado corregido completo en inglés (solo si el campo señalado es el estado; si no, vacío)","cambio":"cambio corregido completo en inglés (solo si se señaló; si no, vacío)","prompt":"prompt corregido completo en inglés (solo si se señaló; si no, vacío)","movimiento":"movimiento corregido en inglés (solo en planos de acción y solo si se señaló; si no, vacío)","encuadre":"general | medio | primer_plano | detalle (solo si se señaló; si no, vacío)"}]}
+Devuelve JSON: {"correcciones":[{"escena":"${fallos[0].escena}","plano":1,"ancla":"ancla corregida (solo si se señaló que parte una frase: las frases COMPLETAS de su línea que cubren el fragmento señalado, copiadas literalmente de la línea, ni una palabra más ni una menos; si no se señaló, vacío)","estado":"estado corregido completo en inglés (solo si el campo señalado es el estado; si no, vacío)","cambio":"cambio corregido completo en inglés (solo si se señaló; si no, vacío)","prompt":"prompt corregido completo en inglés (solo si se señaló; si no, vacío)","movimiento":"movimiento corregido en inglés (solo en planos de acción y solo si se señaló; si no, vacío)","encuadre":"general | medio | primer_plano | detalle (solo si se señaló; si no, vacío)"}]}
 Una corrección por plano señalado, con su número de plano. Los campos no señalados van vacíos y NO se tocan.`,
     temperatura: 0.3,
   };
@@ -382,8 +423,10 @@ async function corregirCampos(datos, escenas, r, fallos, { control, aviso }) {
     const cambio = String(c?.cambio || '').trim();
     const prompt = String(c?.prompt || '').trim();
     const movimiento = String(c?.movimiento || '').trim();
+    const anclaNueva = String(c?.ancla || '').trim();
     const encuadre = encuadreDe(c?.encuadre);
     let toco = false;
+    if (contarPalabras(anclaNueva) >= 3 && anclaNueva !== plano.ancla) { plano.ancla = anclaNueva; toco = true; }
     if (estado.length >= 20 && estado !== plano.estado) { plano.estado = estado; toco = true; }
     if (cambio.length >= 15 && cambio !== plano.cambio) { plano.cambio = cambio; toco = true; }
     if (prompt.length >= 40 && prompt !== plano.prompt) { plano.prompt = prompt; toco = true; }
