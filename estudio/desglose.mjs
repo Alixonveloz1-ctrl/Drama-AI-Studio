@@ -31,6 +31,15 @@
 //    vea o no) y cómo están los objetos que importan. CAMBIO: qué es distinto
 //    respecto al plano anterior, para que la imagen no copie la anterior.
 //  · Todo se comprueba aquí, en el texto, ANTES de pagar ninguna imagen.
+//
+// REGLA DEL DUEÑO (2026-11-04): el texto es lo más barato de la cadena;
+// las imágenes y los videos, lo caro. Ningún arreglo puede recortar el
+// contexto ni las descripciones que alimentan a las imágenes para
+// ahorrar texto o tiempo de servidor. Si una escena no cabe en una
+// llamada, se parte en dos llamadas COMPLETAS; si un campo sale mal, se
+// corrige SOLO ese campo. Se gasta texto, nunca contexto. (El antiguo
+// «modo breve» con topes de palabras iba contra esta regla y producía
+// desgloses incompletos que trababan la escena una y otra vez.)
 // ════════════════════════════════════════════════════════════════
 import { pedirTexto, parsearJSON } from './texto.mjs';
 import { contarPalabras, normalizar, asegurarLugares } from './guion.mjs';
@@ -285,7 +294,105 @@ Si un plano está bien, no lo incluyas. "revisadas" lista TODAS las escenas que 
 }
 
 // ─── Proceso ───
-async function pedirValidado(prompt, validar, { control, aviso, etiqueta }) {
+// Problemas que se arreglan reescribiendo UN campo de UN plano, sin tocar
+// el resto del desglose. Todo lo demás (anclas, orden, número de planos,
+// presencias) es estructural y se resuelve reintentando con la explicación.
+const RE_CAMPO = [
+  { campo: 'estado', re: /^el estado del plano (\d+) de la escena (\S+) no dice dónde está/ },
+  { campo: 'estado', re: /^el plano (\d+) de la escena (\S+) no describe en "estado"/ },
+  { campo: 'cambio', re: /^el plano (\d+) de la escena (\S+) no dice en "cambio"/ },
+  { campo: 'prompt', re: /^el plano (\d+) de la escena (\S+) no tiene un prompt suficiente/ },
+  { campo: 'movimiento', re: /^el plano de acción (\d+) de la escena (\S+) no dice qué movimiento/ },
+  { campo: 'encuadre', re: /^el plano (\d+) de la escena (\S+) no dice su encuadre/ },
+];
+
+// Clasifica los problemas de una validación: devuelve null si hay alguno
+// estructural; si no, la lista de fallos de campo {escena, plano, campo, texto}.
+export function fallosDeCampo(problemas) {
+  const fallos = [];
+  for (const p of problemas) {
+    const hit = RE_CAMPO.map(r => ({ campo: r.campo, m: p.match(r.re) })).find(r => r.m);
+    if (!hit) return null;
+    fallos.push({ escena: hit.m[2], plano: Number(hit.m[1]), campo: hit.campo, texto: p });
+  }
+  return fallos.length ? fallos : null;
+}
+
+export const SISTEMA_CORRECTOR = `Eres el CORRECTOR DE CONTINUIDAD de un drama corto asiático. Te doy un desglose de planos YA HECHO y SOLO los planos que el revisor automático señaló, cada uno con el motivo exacto del señalamiento. Tu trabajo es reescribir ÚNICAMENTE los campos señalados de esos planos, completos y en inglés, respetando el texto de la escena, la posición de cada persona en ese instante y la continuidad con el plano anterior. No tocas ningún otro plano, no cambias la historia y no acortas nada: el campo corregido lleva TODO el detalle que debía llevar.
+Respondes SOLO JSON válido.`;
+
+export function promptCorreccion(datos, escenas, candidato, fallos) {
+  const u = datos.universo;
+  const nombre = id => nombreDe(u, id);
+  const porEscena = new Map();
+  for (const f of fallos) {
+    if (!porEscena.has(f.escena)) porEscena.set(f.escena, []);
+    porEscena.get(f.escena).push(f);
+  }
+  const bloques = [...porEscena.entries()].map(([idEscena, lista]) => {
+    const escena = escenas.find(e => e.id === idEscena);
+    const planos = candidato[idEscena] || [];
+    const detalle = lista.map(f => {
+      const p = planos[f.plano - 1] || {};
+      const anterior = f.plano > 1 ? planos[f.plano - 2] : null;
+      return `Plano ${f.plano} — SEÑALADO: ${f.texto}
+  Presentes en este plano (si corriges el "estado", debe decir dónde está CADA uno, por su nombre): ${(p.presentes || []).map(nombre).join(', ') || 'nadie'}
+  Ancla: «${p.ancla || ''}» · Tipo: ${p.tipo || ''} · Encuadre actual: ${p.encuadre || 'sin decir'}
+  Estado actual: ${p.estado || '—'}
+  Cambio actual: ${p.cambio || '—'}
+  Prompt actual: ${p.prompt || '—'}
+  Movimiento actual: ${p.movimiento || '—'}${anterior ? `\n  Estado del plano anterior (continuidad): ${anterior.estado || '—'}` : ''}`;
+    }).join('\n');
+    return `═══ ESCENA ${idEscena} — escenario ${escena?.escenario || ''} — Lo que se ve al empezar: ${escena?.accion || ''}
+Texto de la escena: ${escena ? textoEscena(escena) : ''}
+${detalle}`;
+  }).join('\n\n');
+  return {
+    sistema: SISTEMA_CORRECTOR,
+    mensaje: `CORRECCIÓN DIRIGIDA de campos sueltos de un desglose ya hecho. No reescribas el desglose: corrige SOLO lo señalado.
+
+${fichaVisual(u)}
+
+${bloques}
+
+Devuelve JSON: {"correcciones":[{"escena":"${fallos[0].escena}","plano":1,"estado":"estado corregido completo en inglés (solo si el campo señalado es el estado; si no, vacío)","cambio":"cambio corregido completo en inglés (solo si se señaló; si no, vacío)","prompt":"prompt corregido completo en inglés (solo si se señaló; si no, vacío)","movimiento":"movimiento corregido en inglés (solo en planos de acción y solo si se señaló; si no, vacío)","encuadre":"general | medio | primer_plano | detalle (solo si se señaló; si no, vacío)"}]}
+Una corrección por plano señalado, con su número de plano. Los campos no señalados van vacíos y NO se tocan.`,
+    temperatura: 0.3,
+  };
+}
+
+// Pide las correcciones de los campos señalados y las aplica sobre los
+// planos normalizados de la validación. Devuelve cuántos planos tocó.
+async function corregirCampos(datos, escenas, r, fallos, { control, aviso }) {
+  const json = parsearJSON(await pedirTexto(promptCorreccion(datos, escenas, r.resultado, fallos), { control, aviso }));
+  let tocados = 0;
+  for (const c of Array.isArray(json?.correcciones) ? json.correcciones : []) {
+    const plano = r.resultado[String(c?.escena)]?.[Number(c?.plano) - 1];
+    if (!plano) continue;
+    const estado = String(c?.estado || '').trim();
+    const cambio = String(c?.cambio || '').trim();
+    const prompt = String(c?.prompt || '').trim();
+    const movimiento = String(c?.movimiento || '').trim();
+    const encuadre = encuadreDe(c?.encuadre);
+    let toco = false;
+    if (estado.length >= 20 && estado !== plano.estado) { plano.estado = estado; toco = true; }
+    if (cambio.length >= 15 && cambio !== plano.cambio) { plano.cambio = cambio; toco = true; }
+    if (prompt.length >= 40 && prompt !== plano.prompt) { plano.prompt = prompt; toco = true; }
+    if (movimiento && plano.tipo === 'accion' && movimiento !== plano.movimiento) { plano.movimiento = movimiento; toco = true; }
+    if (encuadre && encuadre !== plano.encuadre) { plano.encuadre = encuadre; toco = true; }
+    if (toco) tocados++;
+  }
+  return tocados;
+}
+
+// Pide un desglose y lo valida. Si el único fallo es de campos sueltos
+// (un estado que olvida a alguien, un cambio corto…), NO se reescribe el
+// desglose entero —al reescribirse rompe otros planos que estaban bien—:
+// se corrigen solo esos campos con una llamada enfocada (corrección
+// dirigida). Lo estructural sí se reintenta con la explicación, como antes.
+async function pedirConCorreccion(datos, escenas, { control, aviso, etiqueta, extra = '', validar = null }) {
+  const prompt = promptDesglose(datos, escenas, extra);
+  const validarFn = validar || (j => validarDesglose(j, escenas, datos.universo));
   let comentario = '', ultimo = '';
   for (let intento = 0; intento < INTENTOS; intento++) {
     aviso?.(intento ? `${etiqueta}: intento ${intento + 1} de ${INTENTOS}…` : `${etiqueta}…`);
@@ -296,12 +403,89 @@ async function pedirValidado(prompt, validar, { control, aviso, etiqueta }) {
       comentario = '\n\nREINTENTO: devuelve SOLO el JSON pedido.';
       continue;
     }
-    const r = validar(json);
+    let r = validarFn(json);
+    for (let pasada = 0; pasada < 2 && r.problemas.length; pasada++) {
+      const fallos = fallosDeCampo(r.problemas);
+      if (!fallos) break;
+      aviso?.(`${etiqueta}: corrijo solo ${fallos.length === 1 ? 'el campo señalado' : `los ${fallos.length} campos señalados`}…`);
+      const tocados = await corregirCampos(datos, escenas, r, fallos, { control, aviso });
+      if (!tocados) break;
+      r = validarFn({ escenas: escenas.map(e => ({ id: e.id, presentes: r.presentes[e.id] || [], planos: r.resultado[e.id] || [] })) });
+    }
     if (!r.problemas.length) return r;
     ultimo = r.problemas.slice(0, 12).join('; ');
     comentario = `\n\nREINTENTO OBLIGATORIO: se rechazó porque ${ultimo}. Corrígelo y devuelve el desglose completo.`;
   }
   throw Object.assign(new Error(`${etiqueta}: el director no cumplió las reglas después de ${INTENTOS} intentos (${ultimo}). Lo ya guardado se conserva.`), { tipo: 'formato' });
+}
+
+// ─── Escena partida en dos llamadas ───
+// Una escena larga no cabe en UNA respuesta dentro del límite de tiempo
+// del servidor. Partirla por la mitad de su texto y desglosarla en dos
+// llamadas completas cuesta una llamada de texto más (lo barato) y no
+// recorta nada de lo que alimenta a las imágenes (lo caro).
+
+// Parte el texto de una escena en dos mitades de peso parecido (por
+// líneas completas). Devuelve null si no se puede partir.
+export function partirEscena(escena) {
+  if (!Array.isArray(escena.lineas) || escena.lineas.length < 2) return null;
+  const pesos = escena.lineas.map(l => contarPalabras(l.texto));
+  const total = pesos.reduce((a, b) => a + b, 0);
+  if (total < 24) return null;
+  let corte = 1, acumulado = pesos[0];
+  while (corte < escena.lineas.length - 1 && acumulado + pesos[corte] <= total / 2) { acumulado += pesos[corte]; corte++; }
+  return [
+    { ...escena, lineas: escena.lineas.slice(0, corte) },
+    { ...escena, lineas: escena.lineas.slice(corte) },
+  ];
+}
+
+async function desgloseEnDosPartes(datos, escena, { control, aviso }) {
+  const partes = partirEscena(escena);
+  if (!partes) throw Object.assign(new Error(`Desglose de la escena ${escena.id}: tardó demasiado y su texto no se pudo partir en dos. Lo ya guardado se conserva.`), { tipo: 'tiempo' });
+  aviso?.(`La escena ${escena.id} es larga: la desgloso en dos partes completas, sin recortar nada…`);
+  const [primera, segunda] = partes;
+  const minTotal = minimoPlanos(escena), maxTotal = maximoPlanos(escena);
+  const extra1 = `\n\nESTA ES LA PRIMERA PARTE de la escena ${escena.id}: el texto de arriba es solo su primera mitad; la escena continúa después. Desglosa SOLO este texto, con las descripciones completas de siempre, sin acortar nada. La escena completa necesita entre ${minTotal} y ${maxTotal} planos entre las dos partes: escribe para esta parte entre ${Math.max(1, Math.ceil(minTotal / 2))} y ${Math.max(2, Math.ceil(maxTotal / 2))} planos.`;
+  // El tope de cada parte se comprueba también al validar: el mínimo y el
+  // máximo de cada mitad por separado dejan pasar sumas que la escena
+  // completa no admite (visto en pruebas: 7 + 7 contra un máximo de 13).
+  const tope1 = Math.ceil(maxTotal / 2);
+  const validar1 = j => {
+    const r = validarDesglose(j, [primera], datos.universo);
+    const n = r.resultado[escena.id]?.length || 0;
+    if (n > tope1) r.problemas.push(`esta primera parte trae ${n} planos y su tope es ${tope1}: la escena completa admite como máximo ${maxTotal} entre las dos partes`);
+    return r;
+  };
+  const r1 = await pedirConCorreccion(datos, [primera], { control, aviso, etiqueta: `Desglose de la escena ${escena.id} (primera parte)`, extra: extra1, validar: validar1 });
+  const planos1 = r1.resultado[escena.id] || [];
+  const presentes1 = r1.presentes[escena.id] || [];
+  // Quién sigue físicamente en la escena al empezar la segunda parte.
+  const quedan = new Set(presentes1);
+  for (const p of planos1) { for (const id of p.entran || []) quedan.add(id); for (const id of p.salen || []) quedan.delete(id); }
+  const nombre = id => nombreDe(datos.universo, id);
+  const resumen1 = planos1.map((p, i) => `Plano ${i + 1} (${p.tipo}, ${NOMBRE_ENCUADRE[p.encuadre] || 'sin encuadre'}) ancla «${p.ancla}» — Estado: ${p.estado}`).join('\n');
+  const extra2 = `\n\nESTA ES LA SEGUNDA PARTE de la escena ${escena.id}: el texto de arriba es solo su segunda mitad; la primera mitad ya ocurrió y ya se desglosó así (NO la repitas):\n${resumen1}\nAl empezar esta segunda parte están presentes: ${[...quedan].map(nombre).join(', ') || 'nadie'}. Tu campo "presentes" debe ser exactamente esa lista, con sus ids: ${[...quedan].join(', ') || '—'}.\nEl último estado de la primera parte: ${planos1[planos1.length - 1]?.estado || ''}\nLas anclas salen SOLO de las líneas de esta segunda parte (no de «lo que se ve al empezar», que ya pasó). El PRIMER plano de esta parte SÍ lleva "cambio": qué cambió respecto al último plano de la primera parte. La escena completa necesita entre ${minTotal} y ${maxTotal} planos entre las dos partes y ya hay ${planos1.length}: escribe entre ${Math.max(1, minTotal - planos1.length)} y ${Math.max(1, maxTotal - planos1.length)} planos, con las descripciones completas de siempre.`;
+  const validar2 = j => {
+    const r = validarDesglose(j, [segunda], datos.universo);
+    // La segunda parte continúa una escena ya abierta: su primer plano
+    // no tiene que ser el general que abre la escena (ese fue el primero
+    // de la primera parte). Todo lo demás se exige igual.
+    r.problemas = r.problemas.filter(p => !p.includes('empieza con dos o más personas'));
+    const n2 = r.resultado[escena.id]?.length || 0;
+    if (planos1.length + n2 > maxTotal) r.problemas.push(`entre las dos partes sumarían ${planos1.length + n2} planos y la escena admite como máximo ${maxTotal}: escribe menos planos en esta parte`);
+    if (planos1.length + n2 < minTotal) r.problemas.push(`entre las dos partes sumarían solo ${planos1.length + n2} planos y la escena necesita al menos ${minTotal}: escribe más planos en esta parte`);
+    return r;
+  };
+  const r2 = await pedirConCorreccion(datos, [segunda], { control, aviso, etiqueta: `Desglose de la escena ${escena.id} (segunda parte)`, extra: extra2, validar: validar2 });
+  // Unión y validación de la escena COMPLETA, con todas sus reglas.
+  let r = validarDesglose({ escenas: [{ id: escena.id, presentes: presentes1, planos: [...planos1, ...(r2.resultado[escena.id] || [])] }] }, [escena], datos.universo);
+  if (r.problemas.length && fallosDeCampo(r.problemas)) {
+    await corregirCampos(datos, [escena], r, fallosDeCampo(r.problemas), { control, aviso });
+    r = validarDesglose({ escenas: [{ id: escena.id, presentes: r.presentes[escena.id] || [], planos: r.resultado[escena.id] || [] }] }, [escena], datos.universo);
+  }
+  if (r.problemas.length) throw Object.assign(new Error(`Desglose de la escena ${escena.id}: al unir las dos partes quedó un problema (${r.problemas.slice(0, 12).join('; ')}). Lo ya guardado se conserva.`), { tipo: 'formato' });
+  return r;
 }
 
 export function escenasDelEpisodio(datos, numero) {
@@ -343,40 +527,29 @@ export async function desglosar(datos, numero, { control, aviso, guardar, soloEs
     }
     alAvanzar?.();
   };
-  // Una escena sola también puede pasarse de tiempo: su desglose pide el
-  // MÁXIMO de planos y cada plano trae estado, cambio y prompt largos, así
-  // que la respuesta no cabe en el límite del servidor y repetirla igual
-  // vuelve a fallar (fallo visto en una escena de 37 s). El reintento la
-  // pide MÁS PEQUEÑA, como promete el mensaje de error: el mínimo de
-  // planos y campos breves, que la validación sigue aceptando.
-  const extraBreve = escena => `\n\nIMPORTANTE, RESPUESTA BREVE OBLIGATORIA: escribe EXACTAMENTE ${minimoPlanos(escena)} planos para esta escena (el mínimo, no más). Cada "estado" en una sola frase corta de máximo 25 palabras, cada "cambio" de máximo 15 palabras y cada "prompt" de máximo 40 palabras. Sin adornos: la respuesta tiene que ser corta para caber en el tiempo del servidor.`;
   const pedirUna = async escena => {
     try {
-      return await pedirValidado(promptDesglose(datos, [escena]), j => validarDesglose(j, [escena], datos.universo), { control, aviso, etiqueta: `Desglose de la escena ${escena.id}` });
+      return await pedirConCorreccion(datos, [escena], { control, aviso, etiqueta: `Desglose de la escena ${escena.id}` });
     } catch (e) {
       if (e.tipo !== 'tiempo') throw e;
-      aviso?.(`La escena ${escena.id} tardó demasiado; la pido más pequeña…`);
-      return await pedirValidado(promptDesglose(datos, [escena], extraBreve(escena)), j => validarDesglose(j, [escena], datos.universo), { control, aviso, etiqueta: `Desglose breve de la escena ${escena.id}` });
+      // No cupo en el tiempo: se parte en dos llamadas completas (regla
+      // del dueño: gastar texto, nunca recortar contexto).
+      return await desgloseEnDosPartes(datos, escena, { control, aviso });
     }
   };
   for (const [g, grupo] of grupos.entries()) {
     const etiqueta = `Desglose de planos: escenas ${hechas + 1} a ${hechas + grupo.length} de ${pendientes.length}`;
     let resultado, presentes;
     try {
-      ({ resultado, presentes } = await pedirValidado(promptDesglose(datos, grupo), j => validarDesglose(j, grupo, datos.universo), { control, aviso, etiqueta }));
+      ({ resultado, presentes } = await pedirConCorreccion(datos, grupo, { control, aviso, etiqueta }));
     } catch (e) {
       // Si no cupo en el tiempo con varias escenas, se reintenta de una en una.
       if (e.tipo !== 'tiempo') throw e;
-      if (grupo.length === 1) {
-        aviso?.('Tardó demasiado; la pido más pequeña…');
-        ({ resultado, presentes } = await pedirValidado(promptDesglose(datos, grupo, extraBreve(grupo[0])), j => validarDesglose(j, grupo, datos.universo), { control, aviso, etiqueta: `Desglose breve de la escena ${grupo[0].id}` }));
-      } else {
-        resultado = {}; presentes = {};
-        for (const escena of grupo) {
-          const r = await pedirUna(escena);
-          Object.assign(resultado, r.resultado);
-          Object.assign(presentes, r.presentes);
-        }
+      resultado = {}; presentes = {};
+      for (const escena of grupo) {
+        const r = await pedirUna(escena);
+        Object.assign(resultado, r.resultado);
+        Object.assign(presentes, r.presentes);
       }
     }
     for (const escena of grupo) {
