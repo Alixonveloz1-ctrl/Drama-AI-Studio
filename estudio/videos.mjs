@@ -87,10 +87,15 @@ export const bloqueVoz = voz => {
     const aQuien = d ? ` ${voz.nombre} is talking TO ${d.nombre}${d.identidad ? ` (${d.identidad})` : ''}: ${voz.nombre} looks at ${d.nombre} while speaking, and the words are meant for ${d.nombre} alone, not for anyone else in the shot.` : '';
     return `SPOKEN DIALOGUE — CRITICAL: ${voz.nombre} speaks ALOUD in this shot, in neutral Latin American Spanish, saying EXACTLY these words and nothing else: "${texto}".${aQuien} Only ${voz.nombre} speaks, the mouth articulates these exact words, and all speech is in Spanish only — never Chinese, never English. Nobody else speaks: every other character in the shot keeps their mouth closed and only listens and reacts in silence. THE VOICE IS ALWAYS THIS EXACT VOICE (the same voice in every shot of this character): ${voz.descripcion}.`;
   }
-  if (voz.tipo === 'pensamiento') return `VOICE-OVER NARRATION — CRITICAL: nobody speaks on screen in this shot and every mouth stays closed, but the voice-over of ${voz.nombre} narrates in neutral Latin American Spanish, saying EXACTLY these words and nothing else: "${texto}". The voice-over is in Spanish only — never Chinese, never English. THE VOICE IS ALWAYS THIS EXACT VOICE, the same voice ${voz.nombre} speaks aloud with: ${voz.descripcion}.`;
-  return `SYSTEM VOICE-OVER — CRITICAL: nobody speaks on screen; a synthetic system voice announces in neutral Latin American Spanish, saying EXACTLY these words and nothing else: "${texto}". Spanish only — never Chinese, never English. THE SYSTEM VOICE IS ALWAYS THE SAME VOICE: ${voz.descripcion}.`;
+  // Pensamiento: la narración es una voz DENTRO de la cabeza, que no
+  // sale de nadie en pantalla. Aun así Veo movía los labios en algunos
+  // planos (visto en vivo por el dueño), así que la orden va reforzada
+  // por todos lados: labios pegados y quietos, reacción solo con ojos
+  // y cejas, y la lista de prohibidos suma el movimiento de labios.
+  if (voz.tipo === 'pensamiento') return `VOICE-OVER NARRATION — CRITICAL: this narration is a voice INSIDE ${voz.nombre}'s head — it is NOT spoken by anyone on screen and it does not come out of any visible person's mouth. Nobody speaks on screen in this shot: every mouth stays completely closed for the entire clip, lips pressed together and perfectly still, not even a slight parting or a single lip movement, while the voice-over of ${voz.nombre} narrates in neutral Latin American Spanish, saying EXACTLY these words and nothing else: "${texto}". The faces react only with eyes, brow and breathing. The voice-over is in Spanish only — never Chinese, never English. THE VOICE IS ALWAYS THIS EXACT VOICE, the same voice ${voz.nombre} speaks aloud with: ${voz.descripcion}.`;
+  return `SYSTEM VOICE-OVER — CRITICAL: nobody speaks on screen and nobody moves their lips: a disembodied synthetic system voice, laid over the picture, announces in neutral Latin American Spanish, saying EXACTLY these words and nothing else: "${texto}". Spanish only — never Chinese, never English. THE SYSTEM VOICE IS ALWAYS THE SAME VOICE: ${voz.descripcion}.`;
 };
-export const SIN_HABLA = 'NO SPEAKING PERFORMANCE: no character speaks aloud in this shot: mouths stay closed, the character reacts, listens or thinks, with no lip movement of speech.';
+export const SIN_HABLA = 'NO SPEAKING PERFORMANCE: no character speaks aloud in this shot: mouths stay closed with lips pressed together and perfectly still — no lip movement, no mouth opening, no parting lips; the character reacts, listens or thinks with eyes and brow only.';
 
 // Clasifica el ancla de un plano según la línea de la escena que contiene
 // ese fragmento literal. Devuelve 'dialogo', 'pensamiento', 'sistema' o
@@ -202,6 +207,10 @@ export const AUDIO = 'AUDIO: NO voice dialogue, NO narration, NO singing, NO hum
 // CapCut si prefiere la de Chirp. Lo que sigue prohibido es cualquier otra
 // voz y cualquier otro idioma: ahí venía el chino inventado.
 export const AUDIO_HABLA = 'AUDIO: the spoken words written above, in Spanish, PLUS the diegetic sound of this shot: ambience of the location and the sound effects of the action actually visible in frame. NO other voices, NO extra words beyond the quoted text, NO speech in any other language, NO singing and NO added music.';
+// Cuando la voz va EN OFF (pensamiento o Sistema), el audio lo dice
+// también así: una narración que no sale de nadie en pantalla, para que
+// Veo no la cosa a la boca de quien se ve.
+export const AUDIO_EN_OFF = 'AUDIO: a disembodied voice-over narration in Spanish (the words written above) that does NOT come from anyone visible on screen and matches no visible mouth, PLUS the diegetic sound of this shot: ambience of the location and the sound effects of the action actually visible in frame. NO on-screen speech, NO other voices, NO extra words beyond the quoted text, NO speech in any other language, NO singing and NO added music.';
 
 // Del estudio de anime: Veo trata la lluvia como una capa de partículas de
 // pantalla completa y la extendía por todo el plano, también dentro de un
@@ -248,7 +257,7 @@ export function promptVideo(plano, escenario, opciones = {}) {
     ACTUACION,
     bloqueHabla,
     `SHOT MOTION: ${movimiento ? movimiento.replace(/\.$/, '') : 'the characters hold their positions with small natural movement'}.`,
-    voz ? AUDIO_HABLA : AUDIO,
+    voz ? (voz.tipo === 'dialogo' ? AUDIO_HABLA : AUDIO_EN_OFF) : AUDIO,
   ].filter(Boolean).join(' ');
 }
 
@@ -282,6 +291,9 @@ export function negativoVideo(plano, escenario, opciones = {}) {
   const saleEnElGuion = (plano.salen || []).length > 0
     || /\b(leaves?|leaving|exits?|exiting|runs?|running|jumps?|jumping|leaps?|walks? away|gets? up|stands? up|rises?)\b/i.test(plano.movimiento || '');
   if (!saleEnElGuion) partes.push('person leaving the frame, walking away, running away, exiting the scene, sudden jump, leaping up, standing up suddenly');
+  // En voz en off (pensamiento o Sistema) nadie habla EN pantalla: el
+  // movimiento de labios va prohibido por su nombre, que era el fallo.
+  if (opciones.voz && opciones.voz.tipo !== 'dialogo') partes.push('lip movement, moving lips, mouth opening, lips parting, lip sync, mouth moving as if speaking');
   if (opciones.voz?.tipo === 'sistema') partes.push('male system voice, male announcer voice, a man speaking, male voice-over');
   if (escenario?.interior) partes.push('rain streaks across the frame, rain in the foreground, weather particles over the characters, raindrops on the lens, indoor mist, indoor fog, wind blowing indoors, wet hair, wet clothing, water dripping from the ceiling');
   if (!CAMARA_ESCRITA.test(plano.movimiento || '')) partes.push('zoom in, zoom out, dolly in, push in, camera pull back, focal length change, shot size change, reframing, whip pan, orbiting camera, handheld shake');
