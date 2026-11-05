@@ -202,7 +202,16 @@ export function validarDesglose(json, escenas, universo) {
   const resultado = {}, presentesDe = {};
   let accion = 0, total = 0;
   for (const escena of escenas) {
-    const c = crudas.find(x => x?.id === escena.id);
+    let c = crudas.find(x => x?.id === escena.id);
+    // Llamada de UNA sola escena (cada parte de una escena partida, o el
+    // reintento de una en solitario): lo devuelto ES esa escena, aunque el
+    // director la etiquete distinto («e1-parte1») o la mande en trozos
+    // (visto en vivo: la primera parte se rechazó tres veces por la
+    // etiqueta). Se adopta y la validación completa de abajo juzga su
+    // calidad. En llamadas de varias escenas la etiqueta sigue estricta.
+    if (!c && escenas.length === 1 && crudas.length) {
+      c = { presentes: crudas[0]?.presentes, planos: crudas.flatMap(x => (Array.isArray(x?.planos) ? x.planos : [])) };
+    }
     if (!c) { problemas.push(`falta el desglose de la escena ${escena.id}`); continue; }
     const presentes = lista(c.presentes);
     const planos = (Array.isArray(c.planos) ? c.planos : []).map(p => ({
@@ -446,7 +455,7 @@ async function desgloseEnDosPartes(datos, escena, { control, aviso }) {
   aviso?.(`La escena ${escena.id} es larga: la desgloso en dos partes completas, sin recortar nada…`);
   const [primera, segunda] = partes;
   const minTotal = minimoPlanos(escena), maxTotal = maximoPlanos(escena);
-  const extra1 = `\n\nESTA ES LA PRIMERA PARTE de la escena ${escena.id}: el texto de arriba es solo su primera mitad; la escena continúa después. Desglosa SOLO este texto, con las descripciones completas de siempre, sin acortar nada. La escena completa necesita entre ${minTotal} y ${maxTotal} planos entre las dos partes: escribe para esta parte entre ${Math.max(1, Math.ceil(minTotal / 2))} y ${Math.max(2, Math.ceil(maxTotal / 2))} planos.`;
+  const extra1 = `\n\nESTA ES LA PRIMERA PARTE de la escena ${escena.id}: el texto de arriba es solo su primera mitad; la escena continúa después. Desglosa SOLO este texto, con las descripciones completas de siempre, sin acortar nada. La escena completa necesita entre ${minTotal} y ${maxTotal} planos entre las dos partes: escribe para esta parte entre ${Math.max(1, Math.ceil(minTotal / 2))} y ${Math.max(2, Math.ceil(maxTotal / 2))} planos. El "id" de la escena en tu JSON es exactamente "${escena.id}", sin añadidos ni sufijos: es la misma escena de siempre, solo cubres una parte de su texto.`;
   // El tope de cada parte se comprueba también al validar: el mínimo y el
   // máximo de cada mitad por separado dejan pasar sumas que la escena
   // completa no admite (visto en pruebas: 7 + 7 contra un máximo de 13).
@@ -465,7 +474,7 @@ async function desgloseEnDosPartes(datos, escena, { control, aviso }) {
   for (const p of planos1) { for (const id of p.entran || []) quedan.add(id); for (const id of p.salen || []) quedan.delete(id); }
   const nombre = id => nombreDe(datos.universo, id);
   const resumen1 = planos1.map((p, i) => `Plano ${i + 1} (${p.tipo}, ${NOMBRE_ENCUADRE[p.encuadre] || 'sin encuadre'}) ancla «${p.ancla}» — Estado: ${p.estado}`).join('\n');
-  const extra2 = `\n\nESTA ES LA SEGUNDA PARTE de la escena ${escena.id}: el texto de arriba es solo su segunda mitad; la primera mitad ya ocurrió y ya se desglosó así (NO la repitas):\n${resumen1}\nAl empezar esta segunda parte están presentes: ${[...quedan].map(nombre).join(', ') || 'nadie'}. Tu campo "presentes" debe ser exactamente esa lista, con sus ids: ${[...quedan].join(', ') || '—'}.\nEl último estado de la primera parte: ${planos1[planos1.length - 1]?.estado || ''}\nLas anclas salen SOLO de las líneas de esta segunda parte (no de «lo que se ve al empezar», que ya pasó). El PRIMER plano de esta parte SÍ lleva "cambio": qué cambió respecto al último plano de la primera parte. La escena completa necesita entre ${minTotal} y ${maxTotal} planos entre las dos partes y ya hay ${planos1.length}: escribe entre ${Math.max(1, minTotal - planos1.length)} y ${Math.max(1, maxTotal - planos1.length)} planos, con las descripciones completas de siempre.`;
+  const extra2 = `\n\nESTA ES LA SEGUNDA PARTE de la escena ${escena.id}: el texto de arriba es solo su segunda mitad; la primera mitad ya ocurrió y ya se desglosó así (NO la repitas):\n${resumen1}\nAl empezar esta segunda parte están presentes: ${[...quedan].map(nombre).join(', ') || 'nadie'}. Tu campo "presentes" debe ser exactamente esa lista, con sus ids: ${[...quedan].join(', ') || '—'}.\nEl último estado de la primera parte: ${planos1[planos1.length - 1]?.estado || ''}\nLas anclas salen SOLO de las líneas de esta segunda parte (no de «lo que se ve al empezar», que ya pasó). El PRIMER plano de esta parte SÍ lleva "cambio": qué cambió respecto al último plano de la primera parte. La escena completa necesita entre ${minTotal} y ${maxTotal} planos entre las dos partes y ya hay ${planos1.length}: escribe entre ${Math.max(1, minTotal - planos1.length)} y ${Math.max(1, maxTotal - planos1.length)} planos, con las descripciones completas de siempre. El "id" de la escena en tu JSON es exactamente "${escena.id}", sin añadidos ni sufijos: es la misma escena de siempre, solo cubres su segunda parte.`;
   const validar2 = j => {
     const r = validarDesglose(j, [segunda], datos.universo);
     // La segunda parte continúa una escena ya abierta: su primer plano
