@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#09090d">
+<meta name="robots" content="noindex, nofollow">
+<title>Drama AI Studio</title>
+<link rel="icon" href="/estudio/logo.svg" type="image/svg+xml">
+<link rel="stylesheet" href="/estudio/estilos.css">
+</head>
+<body>
+<!-- Iconos de línea (se usan con <use href="#…">). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-libro" viewBox="0 0 24 24"><path d="M2 4h6a4 4 0 0 1 4 4v13a3 3 0 0 0-3-3H2z"/><path d="M22 4h-6a4 4 0 0 0-4 4v13a3 3 0 0 1 3-3h7z"/></symbol>
+  <symbol id="i-personas" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+  <symbol id="i-pelicula" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="18" rx="2.5"/><path d="M7 3v18M17 3v18M2 12h20M2 7.5h5M2 16.5h5M17 7.5h5M17 16.5h5"/></symbol>
+  <symbol id="i-exportar" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/></symbol>
+  <symbol id="i-carpeta" viewBox="0 0 24 24"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="i-ajustes" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1.08-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1.08 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></symbol>
+  <symbol id="i-chispa" viewBox="0 0 24 24"><path d="M11 3l1.9 5.6L18.5 10.5l-5.6 1.9L11 18l-1.9-5.6L3.5 10.5l5.6-1.9z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8z"/></symbol>
+</svg>
+
+<!-- Hasta que el servidor confirme la sesión no se dibuja el estudio. -->
+<div class="comprobando" id="comprobando" role="status" aria-live="polite">
+  <div class="marca"><img src="/estudio/logo.svg" alt=""><div class="marca-texto"><span>Drama</span><span class="oro">AI Studio</span></div></div>
+  <span class="spinner"></span>
+  <p id="comprobando-texto">Comprobando tu acceso…</p>
+  <button type="button" class="btn-sec" id="btnReentrar" hidden style="max-width:20rem">Entrar con otra cuenta</button>
+</div>
+
+<div class="app" id="app" hidden>
+  <header class="header">
+    <div class="marca">
+      <img src="/estudio/logo.svg" alt="">
+      <div class="marca-texto"><span>Drama</span><span class="oro">AI Studio</span><span class="version" id="version"></span></div>
+    </div>
+    <div class="header-btns">
+      <button type="button" class="boton-redondo" id="btnProyectos" aria-label="Proyectos"><svg class="icono"><use href="#i-carpeta"/></svg></button>
+      <button type="button" class="boton-redondo dorado" id="btnApis" aria-label="APIs configuradas"><svg class="icono"><use href="#i-ajustes"/></svg><span class="dot" id="apiDot"></span></button>
+    </div>
+  </header>
+
+  <main>
+    <!-- ───────── HISTORIA ───────── -->
+    <section class="panel active" id="panel-historia" aria-label="Historia">
+      <div class="portada">
+        <h2>Crea tus propias historias de <span class="oro">drama</span></h2>
+        <p>Con todos tus géneros y subgéneros, en español y desde tu teléfono.</p>
+        <div><button type="button" class="btn" id="btnPortada"><svg class="icono"><use href="#i-chispa"/></svg><span>Comenzar ahora</span></button></div>
+      </div>
+      <div id="historia"></div>
+    </section>
+
+    <!-- ───────── PERSONAJES ───────── -->
+    <section class="panel" id="panel-personajes" aria-label="Personajes">
+      <div id="personajes"></div>
+    </section>
+
+    <!-- ───────── ESCENAS ───────── -->
+    <section class="panel" id="panel-escenas" aria-label="Escenas">
+      <div id="escenas"></div>
+    </section>
+
+    <!-- ───────── EXPORTAR ───────── -->
+    <section class="panel" id="panel-exportar" aria-label="Exportar">
+      <div id="exportar"></div>
+    </section>
+  </main>
+</div>
+
+<nav class="nav" aria-label="Secciones">
+  <button type="button" class="nav-tab active" data-panel="historia"><svg class="icono"><use href="#i-libro"/></svg><span>Historia</span></button>
+  <button type="button" class="nav-tab" data-panel="personajes"><svg class="icono"><use href="#i-personas"/></svg><span>Personajes</span></button>
+  <button type="button" class="nav-tab" data-panel="escenas"><svg class="icono"><use href="#i-pelicula"/></svg><span>Escenas</span></button>
+  <button type="button" class="nav-tab" data-panel="exportar"><svg class="icono"><use href="#i-exportar"/></svg><span>Exportar</span></button>
+</nav>
+
+<div id="toast" class="toast" role="status" aria-live="polite"></div>
+<div id="modales"></div>
+
+<script type="module" src="/estudio/inicio.mjs"></script>
+</body>
+</html>
