@@ -30,6 +30,7 @@ import { llamar } from './red.mjs';
 import { pedirMedio, recordarUrl } from './medios.mjs';
 import { errorDetenido, esBloqueo, esCuota } from './texto.mjs';
 import { sexoDe } from './imagenes.mjs';
+import { textoSoloVisibles, nombreDe } from './desglose.mjs';
 
 export const MODELOS_VIDEO = [
   { valor: 'veo-3.1-lite-generate-001', etiqueta: 'Veo 3.1 Lite (predeterminado)' },
@@ -77,7 +78,15 @@ export const VOZ_SISTEMA = "a WOMAN's synthetic system voice — always a female
 // del plano (el pedazo de la línea que le corresponde), en español.
 export const bloqueVoz = voz => {
   const texto = String(voz.texto || '').replace(/"/g, '').trim();
-  if (voz.tipo === 'dialogo') return `SPOKEN DIALOGUE — CRITICAL: ${voz.nombre} speaks ALOUD in this shot, in neutral Latin American Spanish, saying EXACTLY these words and nothing else: "${texto}". Only ${voz.nombre} speaks, the mouth articulates these exact words, and all speech is in Spanish only — never Chinese, never English. THE VOICE IS ALWAYS THIS EXACT VOICE (the same voice in every shot of this character): ${voz.descripcion}.`;
+  if (voz.tipo === 'dialogo') {
+    // A quién se lo dice: sin destinatario, Veo le hacía decir la línea a
+    // la persona que tenía al lado, aunque la línea respondiera a otra
+    // (visto en vivo: la muchacha le preguntaba al malo lo que era para
+    // el protagonista). Y los demás callados: si no, Veo reparte la línea.
+    const d = voz.destinatario;
+    const aQuien = d ? ` ${voz.nombre} is talking TO ${d.nombre}${d.identidad ? ` (${d.identidad})` : ''}: ${voz.nombre} looks at ${d.nombre} while speaking, and the words are meant for ${d.nombre} alone, not for anyone else in the shot.` : '';
+    return `SPOKEN DIALOGUE — CRITICAL: ${voz.nombre} speaks ALOUD in this shot, in neutral Latin American Spanish, saying EXACTLY these words and nothing else: "${texto}".${aQuien} Only ${voz.nombre} speaks, the mouth articulates these exact words, and all speech is in Spanish only — never Chinese, never English. Nobody else speaks: every other character in the shot keeps their mouth closed and only listens and reacts in silence. THE VOICE IS ALWAYS THIS EXACT VOICE (the same voice in every shot of this character): ${voz.descripcion}.`;
+  }
   if (voz.tipo === 'pensamiento') return `VOICE-OVER NARRATION — CRITICAL: nobody speaks on screen in this shot and every mouth stays closed, but the voice-over of ${voz.nombre} narrates in neutral Latin American Spanish, saying EXACTLY these words and nothing else: "${texto}". The voice-over is in Spanish only — never Chinese, never English. THE VOICE IS ALWAYS THIS EXACT VOICE, the same voice ${voz.nombre} speaks aloud with: ${voz.descripcion}.`;
   return `SYSTEM VOICE-OVER — CRITICAL: nobody speaks on screen; a synthetic system voice announces in neutral Latin American Spanish, saying EXACTLY these words and nothing else: "${texto}". Spanish only — never Chinese, never English. THE SYSTEM VOICE IS ALWAYS THE SAME VOICE: ${voz.descripcion}.`;
 };
@@ -103,6 +112,61 @@ export function tipoDeAncla(escena, plano) {
   return lineaDeAncla(escena, plano)?.tipo || '';
 }
 
+// El interlocutor de una línea de diálogo: quien dice la línea de
+// diálogo más cercana (antes o después) que no sea él mismo. En estos
+// guiones las líneas forman intercambios: casi siempre le responde al
+// que habló justo antes. Sin destinatario, Veo no sabe a quién va
+// dirigida la frase y se la hace decir a quien el personaje tenga al
+// lado en la imagen (visto en vivo: la muchacha le preguntaba al malo
+// lo que la línea le preguntaba al protagonista).
+export function interlocutorDe(escena, linea) {
+  const lineas = escena?.lineas || [];
+  const i = lineas.indexOf(linea);
+  if (i < 0) return null;
+  const esOtro = l => l && l.tipo === 'dialogo' && l.personaje && l.personaje !== linea.personaje;
+  for (let d = 1; d < lineas.length; d++) {
+    if (esOtro(lineas[i - d])) return lineas[i - d];
+    if (esOtro(lineas[i + d])) return lineas[i + d];
+  }
+  return null;
+}
+
+// El contexto completo del plano para Veo: quién se ve, quién es cada
+// uno y dónde está cada presente. Sale de lo que el director YA escribió
+// (la ficha de cada personaje y el «estado» del plano): antes el video
+// se pedía solo con el movimiento y la frase, y Veo rellenaba el resto
+// a su manera — la gente se iba al final del clip, una mujer se
+// convertía en otro, nadie sabía quién sujetaba a quién. En encuadres
+// cerrados el estado se recorta a los visibles, con la misma regla de
+// las imágenes, para no describir a quien no se ve.
+export function contextoDelPlano(datos, plano) {
+  const u = datos?.universo || {};
+  const fichaDeId = id => {
+    const v = (u.variantes || []).find(x => x.id === id);
+    return (u.personajes || []).find(p => p.id === (v ? v.madre : id)) || null;
+  };
+  const visibles = [...new Set(plano?.personajes || [])];
+  const reparto = visibles.map(id => {
+    const p = fichaDeId(id);
+    return { id, nombre: nombreDe(u, id), identidad: String(p?.appearance || p?.aspecto || '').trim(), mujer: sexoDe(p || {}) === 'mujer' };
+  });
+  const presentes = [...new Set(plano?.presentes || [])];
+  let estado = String(plano?.estado || '').trim();
+  if (estado && ['primer_plano', 'detalle'].includes(plano?.encuadre)) {
+    estado = textoSoloVisibles(estado, reparto.map(r => r.nombre), presentes.map(id => nombreDe(u, id)));
+  }
+  return { reparto, estado };
+}
+
+// El bloque de contexto del prompt de video: reparto con identidades,
+// posiciones de todos y la identidad cerrada durante todo el clip.
+export const bloqueContexto = c => {
+  if (!c || (!c.reparto?.length && !c.estado)) return '';
+  const lista = c.reparto.map(r => `- ${r.nombre}${r.identidad ? ` (${r.identidad})` : ''}`).join('\n');
+  const identidades = c.reparto.map(r => `${r.nombre} stays exactly the same ${r.mujer ? 'woman' : 'man'}${r.identidad ? ` (${r.identidad})` : ''}`).join('; ');
+  return `CAST AND STAGING — the ground truth of this shot; the animation must respect it exactly: ${lista ? `Who is visible: ${lista.split('\n').join(' ')} ` : ''}${c.estado ? `Where everyone is at this instant: ${c.estado} ` : ''}IDENTITY LOCK: every person keeps the EXACT face, body, sex, hair and clothes of the first frame for the entire clip${identidades ? `: ${identidades}` : ''}. Nobody turns into a different person, nobody changes sex, no face morphs or swaps.`;
+};
+
 // La voz que pide este plano: la línea cuya ancla lo ancla, el nombre de
 // quien la dice y el texto exacto a decir (el ancla, su pedazo de línea).
 // Sin línea localizada no se pide voz: solo ambiente y efectos.
@@ -114,7 +178,18 @@ export function vozDelPlano(datos, escena, plano) {
   if (linea.tipo === 'sistema') return { tipo: 'sistema', nombre: 'The System', texto, descripcion: VOZ_SISTEMA };
   const personaje = (datos?.universo?.personajes || []).find(p => p.id === linea.personaje);
   const nombre = personaje?.nombre || linea.nombre || 'The character';
-  return { tipo: linea.tipo, nombre, texto, descripcion: descripcionVoz(personaje || { nombre }) };
+  const voz = { tipo: linea.tipo, nombre, texto, descripcion: descripcionVoz(personaje || { nombre }) };
+  // En diálogo se anota también el destinatario (el interlocutor según
+  // el orden de las líneas), para que la frase se diga A la persona
+  // correcta y no a la que esté al lado en la imagen.
+  if (linea.tipo === 'dialogo') {
+    const inter = interlocutorDe(escena, linea);
+    if (inter) {
+      const pInter = (datos?.universo?.personajes || []).find(p => p.id === inter.personaje);
+      voz.destinatario = { nombre: pInter?.nombre || inter.nombre || 'the other person', identidad: String(pInter?.appearance || pInter?.aspecto || '').trim() };
+    }
+  }
+  return voz;
 }
 export const ENCUADRE_BLOQUEADO = 'FRAMING — LOCKED: the first frame sets the camera position, the lens and the shot size for the ENTIRE clip. Hold that exact framing from first frame to last: same distance to the subject, same lens, same shot size, same headroom, same amount of the room visible. The camera sits on a locked tripod unless the SHOT MOTION line names a camera move — if it names none, there is no zoom, no push-in, no pull-back and no reframing at any point.';
 export const ESTILO = 'STYLE — ABSOLUTELY MANDATORY: preserve the exact rendering of the first frame, pixel for pixel in look. Do not restyle it, do not turn it into animation, illustration or a videogame cinematic while moving.';
@@ -146,9 +221,13 @@ function primeraFrase(texto) {
 export function promptVideo(plano, escenario, opciones = {}) {
   const movimiento = String(plano.movimiento || '').trim();
   const camara = CAMARA_ESCRITA.test(movimiento);
+  // La dirección cubre el clip ENTERO: el movimiento escrito llena solo
+  // parte de los 4 segundos, y lo que no se dirigía, Veo lo rellenaba
+  // (la gente se iba, salía corriendo o saltaba en el último segundo).
+  // Por eso ambos motivos cierran con el estado final fijo hasta el fin.
   const motivo = movimiento
-    ? 'MOTION — CRITICAL: animate EXACTLY the movement written in SHOT MOTION below and nothing more. The clip must END in the state described there, and settle there. No extra action, no new elements entering frame, and no camera move beyond the one written.'
-    : 'MOTION — CRITICAL: subtle cinematic movement only. Gentle breathing, small natural gestures (head tilt, eye blink, hand movement). Characters stay in position — NO jumping, NO teleporting, NO sudden changes. Smooth and natural, like a live-action drama series.';
+    ? 'MOTION — CRITICAL: animate EXACTLY the movement written in SHOT MOTION below and nothing more. The clip must END in the state described there, and settle there. No extra action, no new elements entering frame, and no camera move beyond the one written. The written movement fills only part of the clip: once it is done, everyone HOLDS that final state completely still (breathing only) until the very end — nobody walks away, nobody leaves the frame, nobody starts any new action. The final frame shows the same people, in the same positions, as the staging describes.'
+    : 'MOTION — CRITICAL: subtle cinematic movement only, for the ENTIRE clip. Gentle breathing, small natural gestures (head tilt, eye blink, hand movement). Characters stay in position — NO jumping, NO teleporting, NO sudden changes, NO walking away, NO leaving the frame. Smooth and natural, like a live-action drama series, and the final frame shows the same people in the same positions as the staging describes.';
   const lugar = escenario ? `SETTING — already built into the input image, do not redesign it: ${primeraFrase(escenario.description || escenario.descripcion || escenario.nombre)}.` : '';
   const clima = CLIMA + (escenario?.interior ? CLIMA_INTERIOR : '');
   // voz: la línea que esta toma dice, con su texto exacto (la decide
@@ -165,6 +244,7 @@ export function promptVideo(plano, escenario, opciones = {}) {
     camara ? '' : ENCUADRE_BLOQUEADO,
     lugar,
     clima,
+    bloqueContexto(opciones.contexto),
     ACTUACION,
     bloqueHabla,
     `SHOT MOTION: ${movimiento ? movimiento.replace(/\.$/, '') : 'the characters hold their positions with small natural movement'}.`,
@@ -193,6 +273,15 @@ export function negativoVideo(plano, escenario, opciones = {}) {
     'see-through clothing, transparent wet shirt, sheer fabric showing skin underneath',
     'indoor rain, rain inside a room, rain inside a corridor, precipitation indoors, water falling indoors, wet indoor floor, puddles indoors, indoor snow',
   ];
+  // La identidad no se mueve en todo el clip: sin esto, Veo convertía a
+  // una mujer en un hombre o cambiaba una cara a mitad de plano.
+  partes.push('face morphing, face swap, identity change, person transforming into another person, gender change, a woman turning into a man, a man turning into a woman, body morphing, deformed body');
+  // Salidas y saltos: prohibidos SOLO cuando el guion no los pide. Si el
+  // plano dice que alguien sale (salen) o el movimiento escrito lo trae
+  // (se levanta, sale, corre, salta), prohibirlo pelearía con lo escrito.
+  const saleEnElGuion = (plano.salen || []).length > 0
+    || /\b(leaves?|leaving|exits?|exiting|runs?|running|jumps?|jumping|leaps?|walks? away|gets? up|stands? up|rises?)\b/i.test(plano.movimiento || '');
+  if (!saleEnElGuion) partes.push('person leaving the frame, walking away, running away, exiting the scene, sudden jump, leaping up, standing up suddenly');
   if (opciones.voz?.tipo === 'sistema') partes.push('male system voice, male announcer voice, a man speaking, male voice-over');
   if (escenario?.interior) partes.push('rain streaks across the frame, rain in the foreground, weather particles over the characters, raindrops on the lens, indoor mist, indoor fog, wind blowing indoors, wet hair, wet clothing, water dripping from the ceiling');
   if (!CAMARA_ESCRITA.test(plano.movimiento || '')) partes.push('zoom in, zoom out, dolly in, push in, camera pull back, focal length change, shot size change, reframing, whip pan, orbiting camera, handheld shake');
@@ -220,9 +309,10 @@ export async function videoPlano({ proyectoId, datos, escena, plano, control, av
     // pensamiento o Sistema). Si no cae en ninguna línea, el plano va
     // sin voz, solo con sus efectos.
     const voz = vozDelPlano(datos, escena, plano);
+    const contexto = contextoDelPlano(datos, plano);
     const r = await pedirMedio('/api/video-inicio', {
       proyecto: proyectoId, clave: 'video-' + plano.id, imagen: plano.imagen.ruta,
-      prompt: promptVideo(plano, escenario, { voz }), negativo: negativoVideo(plano, escenario, { voz }),
+      prompt: promptVideo(plano, escenario, { voz, contexto }), negativo: negativoVideo(plano, escenario, { voz }),
       formato: datos.formulario.formato, modelo: modeloVideo(datos),
     }, { control, aviso });
     plano.operacion = { nombre: r.operacion, modelo: r.modelo, inicio: Date.now(), imagen: plano.imagen.ruta };
