@@ -1,0 +1,9 @@
+# Lo que no forma parte de la página publicada.
+instalador/
+pruebas/
+docs/
+.github/
+c
+CLAUDE.md
+README.md
+montador/
