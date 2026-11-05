@@ -87,8 +87,13 @@ export function crearRitmo({ maximo = 2, ventanaMs = 60000, ahora = () => Date.n
 
 // Solo la imagen y el arranque de video comparten esta cuota; la voz,
 // la música, la transcripción y el montaje tienen las suyas y no se
-// frenan aquí.
-let ventanaRitmoMs = 60000;
+// frenan aquí. La ventana es de 64 s, no de 60: Google mide la cuota
+// con su propio reloj desde que la petición LLEGA, y entre que sale
+// del teléfono y el servidor prepara las referencias pasan unos
+// segundos desiguales; con la ventana exacta, ese desnivel colaba un
+// 429 de vez en cuando (visto en vivo el 2026-11-05, plano 17 de 68).
+// Con 64 s el ritmo estable es una salida cada 32 s.
+let ventanaRitmoMs = 64000;
 export function fijarVentanaRitmo(ms) { ventanaRitmoMs = ms; }
 const RITMOS = new Map();
 function ritmoDe(ruta) {
