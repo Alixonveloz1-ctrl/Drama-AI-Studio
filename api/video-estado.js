@@ -16,6 +16,15 @@ const { ErrorEstudio, errorDeGoogle, clasificar } = require('./_lib/errores');
 const medios = require('./_lib/medios');
 
 const SIETE_DIAS = 7 * 24 * 3600;
+const MENSAJE_BLOQUEO = 'Google bloqueó este video con su filtro de seguridad. Reintentar igual no sirve: cambia el plano.';
+// El filtro de caras/personas (código 3 de Google) actúa sobre la FOTO,
+// no sobre el texto: a veces confunde una cara fotorrealista generada
+// por IA con la foto de una persona real. No depende de lo que pida el
+// plano ni se puede apagar (la app ya le dice a Google que son
+// adultos): el remedio que funciona es regenerar la imagen del plano,
+// porque la nueva versión de la cara suele pasar.
+const esFiltroDeCaras = texto => /person\/face|face generation|17301594/i.test(String(texto || ''));
+const MENSAJE_CARAS = 'Google bloqueó este video porque su filtro de caras creyó ver a una persona real en la foto del plano. La foto es normal: ese filtro se equivoca a veces con las caras fotorrealistas y no se puede apagar. Reintentar con la misma imagen no sirve: regenera la imagen de este plano (la nueva versión de la cara suele pasar) y vuelve a generar el video.';
 const OPERACION = /^projects\/[\w-]+\/locations\/[\w-]+\/publishers\/google\/models\/([\w.-]+)\/operations\/[\w-]+$/;
 
 module.exports = puerta({ metodos: ['POST'] }, async (req, { google }) => {
@@ -48,13 +57,13 @@ module.exports = puerta({ metodos: ['POST'] }, async (req, { google }) => {
   // Terminada con error: se explica y la operación se da por cerrada.
   if (d.error) {
     const detalle = `${d.error.code || ''} — ${d.error.message || JSON.stringify(d.error)}`.slice(0, 1500);
-    if (clasificar(detalle) === 'bloqueo') throw new ErrorEstudio('Google bloqueó este video con su filtro de seguridad. Reintentar igual no sirve: cambia el plano.', { estado: 422, tipo: 'bloqueo', detalle });
+    if (clasificar(detalle) === 'bloqueo') throw new ErrorEstudio(esFiltroDeCaras(detalle) ? MENSAJE_CARAS : MENSAJE_BLOQUEO, { estado: 422, tipo: 'bloqueo', detalle });
     throw new ErrorEstudio('Veo terminó la operación con un error y no hizo el video.', { estado: 502, tipo: 'veo_fallo', detalle });
   }
   const videos = d.response?.videos || [];
   if (!videos.length && d.response?.raiMediaFilteredCount > 0) {
     const motivo = (d.response.raiMediaFilteredReasons || []).join(' · ');
-    throw new ErrorEstudio('Google bloqueó este video con su filtro de seguridad. Reintentar igual no sirve: cambia el plano.', { estado: 422, tipo: 'bloqueo', detalle: `blocked ${motivo}`.trim() });
+    throw new ErrorEstudio(esFiltroDeCaras(motivo) ? MENSAJE_CARAS : MENSAJE_BLOQUEO, { estado: 422, tipo: 'bloqueo', detalle: `blocked ${motivo}`.trim() });
   }
   const gcs = String(videos[0]?.gcsUri || '');
   const prefijo = `gs://${cfg.bucket}/`;
