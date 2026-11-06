@@ -533,7 +533,7 @@ export function promptMusica(datos, actos) {
   const lugar = id => u.escenarios.find(e => e.id === id)?.nombre || '';
   const mmss = t => `${Math.floor(t / 60)}:${String(Math.round(t % 60)).padStart(2, '0')}`;
   return {
-    sistema: 'Eres el DIRECTOR MUSICAL de un drama corto asiático de éxito de hoy. Compones, para cada acto, UNA pieza instrumental que dura todo el acto y sigue lo que pasa en él momento a momento. Tu referencia es el sonido de las bandas sonoras actuales de los dramas chinos y coreanos más vistos: producción moderna y pulida de estudio. Respondes SOLO JSON válido.',
+    sistema: 'Eres el DIRECTOR MUSICAL de un drama corto asiático de éxito de hoy. Compones, para cada acto, UNA pieza instrumental de FONDO que dura todo el acto. La pieza NO es una banda sonora protagonista: es un fondo discreto y PAREJO, pensado para sonar por debajo de los diálogos de principio a fin, tan suave y constante que quien monta el episodio a mano le pone UN SOLO volumen y se olvida de ella. Nada de subidas, picos, clímax ni golpes: el nivel y la energía son los mismos en toda la pieza. Tu referencia son los dramas actuales más vistos, donde la música de fondo apenas se nota. Respondes SOLO JSON válido.',
     mensaje: `${contextoEleccion(f)}
 
 ${contextoUniverso(datos)}
@@ -547,10 +547,10 @@ ${actos.map(a => `── ACTO ${a.numero} · pieza de ${a.segundosPieza} s
 ${(a.detalle || []).map(e => `[${mmss(e.inicio)}] ${e.titulo}${lugar(e.escenario) ? ' — ' + lugar(e.escenario) : ''}: ${e.accion}${e.frases?.length ? `\n   Se dice: ${e.frases.map(l => `${l.tipo === 'sistema' ? 'SISTEMA' : l.personaje === 'extra' ? (l.nombre || 'Extra') : nombre(l.personaje)}: «${l.texto}»`).join(' / ')}` : ''}`).join('\n')}`).join('\n\n')}
 
 Para CADA acto escribe "brief": la descripción de su pieza EN INGLÉS (ni una palabra en español, ni tildes ni eñes), de 90 a 200 palabras, con:
-1. Estilo: "modern cinematic score in the style of today's hit Chinese/Korean drama soundtracks, polished contemporary studio production" adaptado al género y a la época de ESTA historia.
-2. Instrumentos concretos, tempo en BPM y tono.
-3. LÍNEA DE TIEMPO con marcas (por ejemplo "0:00-0:25 …, 0:25-0:50 builds …, 1:10 peak …") que coincidan con los minutos de las escenas de arriba: la música sube en el clímax del acto, baja en los momentos íntimos y termina como pide el final del acto (golpe de suspense si es un gancho).
-4. Que deje espacio al diálogo (sin melodías protagonistas mientras se habla).
+1. Estilo: "subtle background underscore in the style of today's hit Chinese/Korean dramas, polished contemporary studio production" adaptado al género y a la época de ESTA historia.
+2. Instrumentos concretos y POCOS a la vez (una base suave: piano solo, un pad de cuerdas, un instrumento tradicional suave), tempo lento o moderado en BPM y tono.
+3. LÍNEA DE TIEMPO con marcas (por ejemplo "0:00-0:25 …, 0:25-0:50 …") que coincidan con los minutos de las escenas de arriba, SOLO para cambiar el ambiente o la textura (más tenso, más cálido, más vacío) con el MISMO nivel y la misma energía baja de principio a fin: queda prohibido pedir que la música suba, crezca, llegue a un pico o dé un golpe en ningún momento, ni siquiera en el clímax de la historia — ahí mandan las voces y los efectos de los videos.
+4. La dinámica pareja escrita literalmente en el brief: la descripción tiene que decir que la pieza mantiene "constant low intensity and even dynamics from start to finish, mixed low under the dialogue, no swells, no peaks, no stingers", con el diálogo como protagonista absoluto y sin melodías que compitan con él.
 NUNCA nombres estilos que no quieres (ni siquiera para negarlos): está prohibido escribir ${MUSICA_PROHIBIDA.map(p => `«${p}»`).join(', ')}.
 
 Devuelve JSON: {"pistas":[{"acto":1,"brief":"…"}]}`,
