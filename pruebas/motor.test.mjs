@@ -812,6 +812,9 @@ test('música: un acto por bloque (la prueba de 3 min se parte en dos); pieza la
   const prohibida = MU.validarMusica({ pistas: [{ acto: 1, brief: largo + ' Never techno.' }] }, [actos[0]]);
   assert.ok(prohibida.problemas.some(p => p.includes('techno')), 'nombrar un estilo prohibido, ni para negarlo, se reescribe');
   const p = P.promptMusica({ formulario, universo: universoValido(), biblia: { identidadMusical: 'x' } }, actos);
+  assert.match(p.sistema, /FONDO|fondo/, 'la música se compone como fondo, no como banda sonora protagonista');
+  assert.match(p.sistema, /UN SOLO volumen/, 'pensada para montar a mano con un solo volumen por pieza');
+  assert.match(p.mensaje, /no swells, no peaks, no stingers/, 'el brief exige dinámica pareja, sin picos');
   assert.match(p.mensaje, /SONIDO DE PARTIDA PARA ESTE GÉNERO/);
   assert.match(p.mensaje, /\[0:00\]/, 'el director ve el minuto de cada escena');
   assert.match(p.mensaje, /Premisa:/, 'y la historia entera');
