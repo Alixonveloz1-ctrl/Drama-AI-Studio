@@ -648,7 +648,9 @@ export async function revisar(datos, escenas, { control, aviso, guardar }) {
     if (cambiaEstado) plano.estado = estado;
     if (cambiaCambio) plano.cambio = cambio;
     plano.revision = String(c?.motivo || '').trim();
-    // No se borra nada: lo ya generado queda marcado como obsoleto.
+    // No se borra nada aquí: lo ya generado queda marcado como
+    // obsoleto. El video marcado se descarta al pintar Escenas (ya
+    // no sirve: su imagen hay que regenerarla y el montaje lo excluye).
     if (plano.imagen) plano.imagenObsoleta = true;
     if (plano.video) plano.videoObsoleto = true;
     correcciones++;
