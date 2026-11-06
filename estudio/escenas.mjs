@@ -223,7 +223,14 @@ async function imagenPlano(escena, indice, opciones) {
   for (const a of r.avisos || []) avisar(a);
   plano.imagen = { ruta: r.ruta, modelo: r.modelo, fecha: Date.now() };
   plano.imagenObsoleta = false;
-  if (plano.video) plano.videoObsoleto = true;
+  // El video se hizo desde la imagen anterior: ya no corresponde a
+  // este plano. Se descarta en el acto, no se deja marcado: la
+  // tarjeta vuelve a enseñar la imagen nueva (antes el video viejo
+  // tapaba la vista previa) y el hueco queda listo para generar el
+  // video nuevo cuando el usuario quiera. El archivo viejo vive en
+  // la ruta fija de este plano y el próximo video lo sobrescribe.
+  delete plano.video;
+  delete plano.videoObsoleto;
   await guardar();
 }
 
