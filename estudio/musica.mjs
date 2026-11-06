@@ -16,8 +16,12 @@ import { promptMusica, segundosDe, MUSICA_PROHIBIDA } from './prompts.mjs';
 import { contarPalabras } from './guion.mjs';
 import { segundosVoz } from './voces.mjs';
 
-// La 1 era Lyria 2 (30 s en bucle); la 2 es Lyria 3 Pro con director con contexto.
-export const VERSION_MUSICA = 2;
+// La 1 era Lyria 2 (30 s en bucle); la 2 es Lyria 3 Pro con director con
+// contexto; la 3 compone FONDO parejo y discreto, sin subidas ni picos:
+// el usuario monta a mano en CapCut con un solo volumen por pieza (no
+// usa el montaje automático), así que la pieza tiene que valer entera
+// a un nivel constante por debajo del diálogo.
+export const VERSION_MUSICA = 3;
 export const MAX_PIEZA = 184;
 export const musicaVigente = m => Boolean(m?.ruta) && m.version === VERSION_MUSICA;
 
