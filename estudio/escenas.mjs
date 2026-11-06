@@ -105,8 +105,9 @@ function pintarAhora() {
   }
   const sinDesglose = escenas.filter(e => !e.planos?.length).length;
   const sinImagen = planos.filter(x => !x.imagen || x.imagenObsoleta).length;
-  const deAccion = planos.filter(x => x.tipo === 'accion');
-  const sinVideo = deAccion.filter(x => !x.video || x.videoObsoleto).length;
+  // El lote de videos cubre TODO plano con imagen (acción y
+  // cobertura): el número cuenta solo los que se pueden hacer ya.
+  const sinVideo = planos.filter(x => x.imagen && !x.imagenObsoleta && (!x.video || x.videoObsoleto)).length;
   const conVideo = planos.filter(x => x.video && !x.videoObsoleto).length;
   const enCurso = planos.filter(x => x.operacion?.nombre).length;
   const sinVoz = escenas.filter(e => !vozVigente(e)).length;
@@ -132,7 +133,7 @@ function pintarAhora() {
     ${sinDesglose ? `<button type="button" class="btn ancho" data-accion="desglose">${planos.length ? `Desglosar las ${sinDesglose} escenas que faltan` : 'Hacer el desglose de planos'}</button>` : ''}
     ${!sinDesglose && sinImagen ? `<button type="button" class="btn ancho" data-accion="lote">Generar todas las imágenes (${sinImagen})</button>` : ''}
     ${!sinDesglose && sinVideo ? `<button type="button" class="${sinImagen ? 'btn-sec' : 'btn ancho'}" data-accion="lote-videos">Generar todos los videos (${sinVideo})</button>` : ''}
-    ${!sinDesglose && !sinImagen && !sinVideo ? `<p class="nota oro">Todas las imágenes y los videos de acción están hechos.</p>` : ''}
+    ${!sinDesglose && !sinImagen && !sinVideo ? `<p class="nota oro">Todas las imágenes y los videos están hechos.</p>` : ''}
     ${!sinDesglose && sinVoz ? `<button type="button" class="btn-sec" data-accion="lote-voces">Generar todas las voces (${sinVoz})</button>` : ''}
     ${planos.length ? `<button type="button" class="btn-sec" data-accion="revisar">Revisar la puesta en escena</button>` : ''}
     ${planos.length ? `<button type="button" class="btn-sec" data-accion="rehacer-todo">Rehacer todo el desglose</button>` : ''}
@@ -333,7 +334,7 @@ async function alPulsar(evento) {
   }
   if (accion === 'lote-videos') {
     return trabajar('general', async o => {
-      const elementos = escenas.flatMap(e => (e.planos || []).filter(x => x.tipo === 'accion').map(x => ({ escena: e, plano: x })));
+      const elementos = escenas.flatMap(e => (e.planos || []).filter(x => x.imagen && !x.imagenObsoleta).map(x => ({ escena: e, plano: x })));
       const cuenta = await tanda(elementos, {
         ...o,
         palabra: 'generados',
