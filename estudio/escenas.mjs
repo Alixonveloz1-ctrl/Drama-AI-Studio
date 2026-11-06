@@ -94,6 +94,15 @@ function pintarAhora() {
   const u = d.universo;
   const escenas = escenasDelEpisodio(d, d.episodioActual || 1);
   const planos = escenas.flatMap(e => e.planos || []);
+  // Descartes pendientes: un video marcado como «de una imagen
+  // anterior» (así quedaban con la versión que solo lo marcaba al
+  // regenerar la imagen) se descarta aquí mismo, al enseñar la
+  // sección: la imagen regenerada ya está guardada y no hay que
+  // volver a generarla para deshacerse del video viejo.
+  if (planos.some(x => x.videoObsoleto)) {
+    for (const x of planos) if (x.videoObsoleto) { delete x.video; delete x.videoObsoleto; }
+    guardar().catch(e => avisar(explicar(e), 'error'));
+  }
   const sinDesglose = escenas.filter(e => !e.planos?.length).length;
   const sinImagen = planos.filter(x => !x.imagen || x.imagenObsoleta).length;
   const deAccion = planos.filter(x => x.tipo === 'accion');
