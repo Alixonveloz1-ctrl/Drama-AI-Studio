@@ -38,10 +38,13 @@ export const MINIMO_PLANO = 0.5;
 // edita en CapCut): se pega al principio de la edición y corre sin
 // huecos, con voz desde el primer segundo. Todo silencio más largo de
 // CORTE_SILENCIO se corta y se deja en dos bordes de BORDE_PIEZA
-// (0,12 s en total, una pausa corta natural): entre líneas y también
+// (0,20 s en total, una pausa corta natural): entre líneas y también
 // DENTRO de cada línea, entre frase y frase, que era lo que él tenía
-// que cortar a mano.
-export const CORTE_SILENCIO = 0.4, BORDE_PIEZA = 0.06;
+// que cortar a mano. El borde es también el margen de seguridad del
+// corte: 0,10 s a cada lado para que el error pequeño de los tiempos
+// por palabra nunca alcance una letra (con 0,06 y un segundo recorte
+// por volumen, las piezas se comían letras suaves: 2026-11-06).
+export const CORTE_SILENCIO = 0.4, BORDE_PIEZA = 0.10;
 
 // Las piezas de UNA línea dentro de su tramo de voz: la línea se parte
 // donde la pausa entre dos palabras seguidas pasa de CORTE_SILENCIO,
@@ -325,7 +328,7 @@ export function hojaDeZip(datos, numero) {
     { nombre: 'guia.txt', contenido: `GUÍA DEL EPISODIO ${numero} — cada toma, en orden, con su inicio y su duración EN EL MONTAJE de la app.\nLas voces van en UN SOLO AUDIO CONTINUO (voces.wav), con los silencios ya cortados — también los de dentro de cada frase —: pégalo al principio de tu edición y acomoda las imágenes sobre él. Por eso sus tiempos NO coinciden con los de esta guía, que son los del montaje automático.\nY cada línea va además suelta en la carpeta «dialogos», con el mismo corte de silencios, por si prefieres colocarlas una a una.\n\n${guia.join('\n')}${guiaDialogos.length ? `\n\nDIÁLOGOS SUELTOS, EN ORDEN:\n${guiaDialogos.join('\n')}` : ''}` },
     { nombre: 'subtitulos.srt', contenido: subtitulosZip.map((s, i) => `${i + 1}\n${tSrt(s.inicio)} --> ${tSrt(s.fin)}\n${s.texto}\n`).join('\n') },
   ];
-  return { modo: 'zip', episodio: numero, archivos, textos, voces: piezasZip, dialogos: dialogosZip };
+  return { modo: 'zip', episodio: numero, nombre: u.titulo || '', archivos, textos, voces: piezasZip, dialogos: dialogosZip };
 }
 
 async function dormir(segundos, control) {
