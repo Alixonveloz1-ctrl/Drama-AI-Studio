@@ -907,6 +907,9 @@ test('hoja de montaje: el guion lo escribe el servidor, es bash válido y ningú
   }
   const zip = hojaLib.validar('pimagen0001', { modo: 'zip', episodio: 2, archivos: [{ ruta: base + 'plano-e1-2.png', nombre: 'imagenes/escena-01-plano-02.png' }], textos: [{ nombre: 'guion.txt', contenido: 'x' }] });
   assert.equal(hojaLib.construir(zip, { bucket: 'b', carpeta: 'c' }).archivo, 'material-ep02.zip');
+  // Con título, el ZIP se nombra por la historia (sin tildes ni espacios).
+  const zipTitulo = hojaLib.validar('pimagen0001', { modo: 'zip', episodio: 1, nombre: 'El Despertar del Soberano', archivos: [{ ruta: base + 'plano-e1-2.png', nombre: 'imagenes/toma-001.png' }], textos: [{ nombre: 'guion.txt', contenido: 'x' }] });
+  assert.equal(hojaLib.construir(zipTitulo, { bucket: 'b', carpeta: 'c' }).archivo, 'el-despertar-del-soberano-ep01.zip');
   // ZIP con voces: un solo voces.wav mezclado, no archivos sueltos.
   const zipVoces = hojaLib.validar('pimagen0001', { modo: 'zip', episodio: 2,
     archivos: [{ ruta: base + 'plano-e1-2.png', nombre: 'imagenes/toma-001.png' }],
@@ -938,6 +941,7 @@ test('hoja de montaje: el guion lo escribe el servidor, es bash válido y ningú
     voces: [{ ruta: base + 'voz-e1-1.wav', desde: 0.1, hasta: 1.9 }, { ruta: base + 'voz-e1-1.wav', desde: 2.5, hasta: 4 }],
     dialogos: [{ nombre: 'dialogos/dialogo-001.wav', piezas: [0, 1] }] });
   const zipPiezasHecho = hojaLib.construir(zipPiezas, { bucket: 'b', carpeta: 'c' });
+  assert.ok(!/silenceremove/.test(zipPiezasHecho.script), 'las piezas NO llevan segundo recorte por volumen: se comía las letras suaves');
   assert.match(zipPiezasHecho.script, /a\/piezas\/p0001\.wav/, 'cada pieza se corta a su archivo');
   assert.match(zipPiezasHecho.script, /-f concat -safe 0 -i lista-voces\.txt -c copy material\/voces\.wav/, 'las piezas se unen en un solo voces.wav continuo, sin huecos');
   assert.match(zipPiezasHecho.script, /material\/dialogos\/dialogo-001\.wav/, 'el diálogo suelto se arma con las piezas de su línea');
