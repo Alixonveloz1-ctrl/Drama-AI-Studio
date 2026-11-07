@@ -119,7 +119,10 @@ function validar(id, h) {
       return { ruta: medios.exigirDelProyecto(id, d?.ruta), desde, hasta, nombre };
     });
     if (!archivos.length && !textos.length) throw new ErrorEstudio('No hay nada que meter en el ZIP.', { estado: 400, tipo: 'peticion' });
-    return { modo, episodio, archivos, textos, voces, dialogos };
+    // El título de la historia, para que el ZIP se descargue con su
+    // nombre y no «material-ep01» en todos los proyectos.
+    const nombre = texto(h.nombre, 120).trim();
+    return { modo, episodio, nombre, archivos, textos, voces, dialogos };
   }
   const planos = lista(h.planos, 3000, 'los planos').map((p, i) => ({
     tipo: p?.tipo === 'video' ? 'video' : 'imagen',
@@ -150,12 +153,22 @@ function construir(h, { bucket, carpeta }) {
       descargas.push([gs(`${carpeta}/textos/${t.nombre}`), 'material/textos/' + t.nombre]);
     }
     const voces = h.voces || [];
-    const archivo = `material-ep${pad(h.episodio, 2)}.zip`;
+    // El ZIP lleva el nombre de la historia (limpio para nombre de
+    // archivo): «el-despertar-del-soberano-ep01.zip». Sin título, el
+    // nombre de siempre.
+    const slugTitulo = String(h.nombre || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).replace(/-+$/g, '');
+    const archivo = slugTitulo ? `${slugTitulo}-ep${pad(h.episodio, 2)}.zip` : `material-ep${pad(h.episodio, 2)}.zip`;
     // AUDIO CONTINUO (la forma actual): las voces llegan como PIEZAS ya
     // cortadas sin silencios por el navegador. Cada pieza se corta de su
-    // archivo con la normalización de siempre y el recorte de extremos
-    // de seguridad, y todas se unen EN ORDEN y sin huecos en un solo
-    // voces.wav: la voz corre desde el primer segundo, sin pausas
+    // archivo con la normalización de siempre y SIN ningún segundo
+    // recorte por volumen: el silenceremove que iba aquí borraba todo
+    // lo que sonara por debajo de -50 dB en los extremos de cada pieza
+    // y se comía las letras suaves (comienzos de palabra y finales
+    // apagados) al principio, en el medio y al final de cada audio —
+    // fallo oído por el usuario el 2026-11-06. El corte vale por los
+    // tiempos medidos de las palabras, con su borde de seguridad, y
+    // nada más. Todas las piezas se unen EN ORDEN y sin huecos en un
+    // solo voces.wav: la voz corre desde el primer segundo, sin pausas
     // muertas entre líneas ni dentro de ellas. Los diálogos sueltos se
     // arman uniendo las piezas de su línea, ya cortadas: mismo corte.
     const sonPiezas = voces.length > 0 && voces.every(v => v.desde !== undefined);
@@ -163,7 +176,7 @@ function construir(h, { bucket, carpeta }) {
       const fuentes = [...new Set(voces.map(v => v.ruta))];
       const indiceFuente = new Map(fuentes.map((r, i) => [r, i]));
       for (const [i, r] of fuentes.entries()) descargas.push([gs(r), `a/v${pad(i + 1, 4)}.wav`]);
-      const filtroPieza = 'loudnorm=I=-16:TP=-1.5:LRA=11,silenceremove=start_periods=1:start_duration=0.05:start_threshold=-50dB,areverse,silenceremove=start_periods=1:start_duration=0.05:start_threshold=-50dB,areverse';
+      const filtroPieza = 'loudnorm=I=-16:TP=-1.5:LRA=11';
       const cortes = voces.map((v, k) => `ffmpeg -nostdin -y -i a/v${pad(indiceFuente.get(v.ruta) + 1, 4)}.wav -af "atrim=start=${f3(v.desde)}:end=${f3(v.hasta)},asetpts=N/SR/TB,${filtroPieza}" -ar 48000 -ac 2 "a/piezas/p${pad(k + 1, 4)}.wav"`);
       const unirVoces = `: > lista-voces.txt
 for n in $(seq -f '%04g' 1 ${voces.length}); do echo "file 'a/piezas/p$n.wav'" >> lista-voces.txt; done
