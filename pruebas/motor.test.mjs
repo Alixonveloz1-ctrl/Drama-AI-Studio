@@ -841,6 +841,7 @@ test('montaje: cada escena dura su narración, los planos sin ancla se reparten 
   datos.episodios[1].bloques[0].escenas[0].planos[1].imagenObsoleta = true;
   assert.throws(() => MO.hojaDeVideo(datos, 1), /Falta la imagen del plano 2/);
   const zip = MO.hojaDeZip(datos, 1);
+  assert.equal(zip.nombre, 'El Boticario del Emperador', 'la hoja del ZIP lleva el título de la historia para nombrar la descarga');
   // Numeración global por toma: imagen y video de la misma toma comparten número.
   assert.ok(zip.archivos.some(a => a.nombre === 'videos/toma-001.mp4'));
   assert.ok(zip.archivos.some(a => a.nombre === 'imagenes/toma-001.png'));
@@ -870,8 +871,8 @@ test('montaje: el audio continuo parte cada línea por sus pausas internas (piez
   ];
   const piezas = MO.piezasDeLinea(palabras, 0, 4.5);
   assert.equal(piezas.length, 2, 'una pausa mayor que el corte parte la línea');
-  assert.ok(Math.abs(piezas[0].desde - 0.14) < 0.001 && Math.abs(piezas[0].hasta - 1.56) < 0.001, 'la primera pieza llega hasta la última palabra antes de la pausa, más el borde');
-  assert.ok(Math.abs(piezas[1].desde - 2.54) < 0.001 && Math.abs(piezas[1].hasta - 4.06) < 0.001, 'la segunda arranca en la palabra tras la pausa, menos el borde: entre piezas quedan 0,12 s, no 1,1');
+  assert.ok(Math.abs(piezas[0].desde - 0.10) < 0.001 && Math.abs(piezas[0].hasta - 1.60) < 0.001, 'la primera pieza llega hasta la última palabra antes de la pausa, más el borde');
+  assert.ok(Math.abs(piezas[1].desde - 2.50) < 0.001 && Math.abs(piezas[1].hasta - 4.10) < 0.001, 'la segunda arranca en la palabra tras la pausa, menos el borde: entre piezas quedan 0,20 s, no 1,1');
   // Sin pausa larga, una sola pieza; sin palabras, la línea entera.
   assert.equal(MO.piezasDeLinea([{ inicio: 0.2, fin: 0.8 }, { inicio: 0.9, fin: 1.5 }], 0, 2).length, 1);
   assert.deepEqual(MO.piezasDeLinea([], 0.5, 2), [{ desde: 0.5, hasta: 2 }]);
