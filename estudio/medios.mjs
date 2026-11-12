@@ -87,13 +87,15 @@ export function crearRitmo({ maximo = 2, ventanaMs = 60000, ahora = () => Date.n
 
 // Solo la imagen y el arranque de video comparten esta cuota; la voz,
 // la música, la transcripción y el montaje tienen las suyas y no se
-// frenan aquí. La ventana es de 64 s, no de 60: Google mide la cuota
-// con su propio reloj desde que la petición LLEGA, y entre que sale
-// del teléfono y el servidor prepara las referencias pasan unos
-// segundos desiguales; con la ventana exacta, ese desnivel colaba un
-// 429 de vez en cuando (visto en vivo el 2026-11-05, plano 17 de 68).
-// Con 64 s el ritmo estable es una salida cada 32 s.
-let ventanaRitmoMs = 64000;
+// frenan aquí. La ventana se fijó con la medida real del 2026-11-12
+// en el proyecto «Supervivencia Multiplicada: La Balsa del Fin del
+// Mundo»: de 186 imágenes a las 07:54 PST a 204 a las 08:57 PST,
+// 18 imágenes nuevas en 63 minutos, es decir, una imagen aceptada
+// cada 210 s de media, con «Reintento» por límite por minuto en el
+// camino. Pedir más rápido solo choca con ese límite y pierde tiempo
+// en reintentos, así que la app pide a ese ritmo medido.
+// Con 420 s de ventana el ritmo estable es una salida cada 210 s.
+let ventanaRitmoMs = 420000;
 export function fijarVentanaRitmo(ms) { ventanaRitmoMs = ms; }
 const RITMOS = new Map();
 function ritmoDe(ruta) {
