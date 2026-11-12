@@ -39,8 +39,18 @@ let voces = null;        // las voces que Google ofrece (se piden una vez)
 
 export { MODELOS as MODELOS_IMAGEN };
 
+// El modelo de las ESCENAS (planos): vive en ajustes.modeloImagen y lo
+// elige el selector de la pantalla Escenas.
 export function modeloImagen(datos) {
   return MODELOS.some(m => m.valor === datos?.ajustes?.modeloImagen) ? datos.ajustes.modeloImagen : MODELOS[0].valor;
+}
+
+// El modelo de los PERSONAJES es OTRO ajuste, separado a propósito
+// (regla del dueño, 2026-11-12): él a veces genera las referencias con
+// el Pro elegido a mano, y ese Pro no debe colarse jamás a las escenas.
+// Cada pantalla guarda y lee SOLO el suyo; los dos parten del Flash.
+export function modeloPersonajes(datos) {
+  return MODELOS.some(m => m.valor === datos?.ajustes?.modeloPersonajes) ? datos.ajustes.modeloPersonajes : MODELOS[0].valor;
 }
 
 export function montarPersonajes(contenedor) {
@@ -61,10 +71,10 @@ export function montarPersonajes(contenedor) {
       pintarPersonajes();
       return;
     }
-    if (evento.target.matches('[name="modeloImagen"]')) {
+    if (evento.target.matches('[name="modeloPersonajes"]')) {
       const d = proyectoActual()?.datos;
       if (!d) return;
-      d.ajustes = { ...(d.ajustes || {}), modeloImagen: evento.target.value };
+      d.ajustes = { ...(d.ajustes || {}), modeloPersonajes: evento.target.value };
       guardar().catch(e => avisar(explicar(e), 'error'));
     }
   });
@@ -98,8 +108,8 @@ function pintarAhora() {
   raiz.innerHTML = `
   <div class="seccion"><h3>Personajes y escenarios</h3></div>
   <div class="card">
-    <label class="campo-linea">Modelo de imagen<select name="modeloImagen">${MODELOS.map(m => `<option value="${m.valor}"${m.valor === modeloImagen(d) ? ' selected' : ''}>${m.etiqueta}</option>`).join('')}</select></label>
-    <p class="nota">Cada personaje necesita su ficha de referencia antes de las escenas: así no cambia de cara entre planos.</p>
+    <label class="campo-linea">Modelo de imagen<select name="modeloPersonajes">${MODELOS.map(m => `<option value="${m.valor}"${m.valor === modeloPersonajes(d) ? ' selected' : ''}>${m.etiqueta}</option>`).join('')}</select></label>
+    <p class="nota">Cada personaje necesita su ficha de referencia antes de las escenas: así no cambia de cara entre planos. El modelo de aquí es solo para los personajes; el de las escenas se elige en Escenas y no se toca desde aquí.</p>
     ${caja('lote')}
     <button type="button" class="btn ancho" data-accion="lote"${faltan ? '' : ' disabled'}>${faltan ? `Generar las ${faltan} referencias que faltan` : 'Todas las referencias están hechas'}</button>
   </div>
@@ -165,7 +175,7 @@ function aviso(texto) {
 async function generar(cuerpo, opciones) {
   const p = proyectoActual();
   const f = p.datos.formulario;
-  const r = await pedirMedio('/api/imagen', { proyecto: p.id, modelo: modeloImagen(p.datos), ecchi: esEcchi(f), direccion: direccionDeAspecto(f), ...cuerpo }, opciones);
+  const r = await pedirMedio('/api/imagen', { proyecto: p.id, modelo: modeloPersonajes(p.datos), ecchi: esEcchi(f), direccion: direccionDeAspecto(f), ...cuerpo }, opciones);
   recordarUrl(r.ruta, r.url);
   for (const a of r.avisos || []) avisar(a);
   return { ruta: r.ruta, modelo: r.modelo, fecha: Date.now() };
