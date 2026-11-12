@@ -93,10 +93,13 @@ export function crearRitmo({ maximo = 2, ventanaMs = 60000, ahora = () => Date.n
 // dueño: el tiempo detenido no cuenta). En la sesión continua
 // 07:08→09:03 PST los tramos limpios dieron exactamente 10 imágenes
 // cada 10 minutos (07:10–07:41, 08:01–08:11, 08:21–08:31): Google
-// acepta una imagen por minuto. Una primera media de 210 s por imagen
-// se descartó porque mezclaba un tramo con el lote detenido.
-// Con 120 s de ventana el ritmo estable es una salida cada 60 s.
-let ventanaRitmoMs = 120000;
+// acepta una imagen por minuto sin chocar. Una primera media de
+// 210 s por imagen se descartó porque mezclaba un tramo detenido.
+// PRUEBA del dueño (2026-11-12): a ese ritmo un episodio de 630
+// imágenes tarda más de 10 horas, así que se prueba una salida cada
+// 45 s; si vuelven las tormentas de «Reintento», se regresa a 60 s.
+// Con 90 s de ventana el ritmo estable es una salida cada 45 s.
+let ventanaRitmoMs = 90000;
 export function fijarVentanaRitmo(ms) { ventanaRitmoMs = ms; }
 const RITMOS = new Map();
 function ritmoDe(ruta) {
