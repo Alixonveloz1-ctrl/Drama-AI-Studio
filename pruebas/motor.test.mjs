@@ -1072,3 +1072,22 @@ test('sesión: cada petición lleva el token vigente y un 401 fuerza uno nuevo y
     red.usarToken(null);
   }
 });
+
+import { modeloImagen, modeloPersonajes } from '../estudio/personajes.mjs';
+
+test('modelos de imagen separados: el Pro de Personajes no toca las escenas (regla del dueño 2026-11-12)', () => {
+  // Sin ajustes, los dos parten del Flash.
+  assert.equal(modeloImagen({}), 'gemini-3.1-flash-image');
+  assert.equal(modeloPersonajes({}), 'gemini-3.1-flash-image');
+  // Pro elegido a mano para los personajes: las escenas siguen en Flash.
+  const conProPersonajes = { ajustes: { modeloPersonajes: 'gemini-3-pro-image' } };
+  assert.equal(modeloPersonajes(conProPersonajes), 'gemini-3-pro-image');
+  assert.equal(modeloImagen(conProPersonajes), 'gemini-3.1-flash-image', 'el Pro de Personajes no se cuela a las escenas');
+  // Y al revés: el ajuste de Escenas no mueve el de Personajes.
+  const conProEscenas = { ajustes: { modeloImagen: 'gemini-3-pro-image' } };
+  assert.equal(modeloImagen(conProEscenas), 'gemini-3-pro-image');
+  assert.equal(modeloPersonajes(conProEscenas), 'gemini-3.1-flash-image', 'el ajuste de Escenas no mueve el de Personajes');
+  // Un valor desconocido cae al Flash en los dos.
+  assert.equal(modeloPersonajes({ ajustes: { modeloPersonajes: 'otro' } }), 'gemini-3.1-flash-image');
+  assert.equal(modeloImagen({ ajustes: { modeloImagen: 'otro' } }), 'gemini-3.1-flash-image');
+});
