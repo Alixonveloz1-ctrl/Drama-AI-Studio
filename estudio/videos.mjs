@@ -36,6 +36,8 @@ export const MODELOS_VIDEO = [
   { valor: 'veo-3.1-lite-generate-001', etiqueta: 'Veo 3.1 Lite (predeterminado)' },
   { valor: 'veo-3.1-fast-generate-001', etiqueta: 'Veo 3.1 Fast (equilibrado)' },
   { valor: 'veo-3.1-generate-001', etiqueta: 'Veo 3.1 (máxima calidad)' },
+  { valor: 'gemini-omni-1.2-flash-360p', etiqueta: 'Omni 1.2 Flash · 360p (el barato)' },
+  { valor: 'gemini-omni-1.2-flash-720p', etiqueta: 'Omni 1.2 Flash · 720p' },
 ];
 
 export function modeloVideo(datos) {
@@ -314,8 +316,9 @@ export async function videoPlano({ proyectoId, datos, escena, plano, control, av
   if (!plano.imagen?.ruta) throw new Error('Este plano no tiene imagen todavía. El video arranca de ella: genérala primero.');
   if (plano.imagenObsoleta) throw new Error('La imagen de este plano quedó obsoleta tras la revisión. Regenérala primero: el video arrancaría de la imagen vieja.');
   const escenario = datos.universo.escenarios.find(x => x.id === escena.escenario);
+  const nombreMotor = modeloVideo(datos).startsWith('gemini-omni-1.2-flash') ? 'Omni' : 'Veo';
   if (!plano.operacion?.nombre) {
-    aviso?.('Enviando a Veo…');
+    aviso?.(`Enviando a ${nombreMotor}…`);
     // La voz de la toma: si el ancla cae en una línea, Veo dice su texto
     // exacto en español (en pantalla si es diálogo; en off si es
     // pensamiento o Sistema). Si no cae en ninguna línea, el plano va
@@ -330,16 +333,16 @@ export async function videoPlano({ proyectoId, datos, escena, plano, control, av
     plano.operacion = { nombre: r.operacion, modelo: r.modelo, inicio: Date.now(), imagen: plano.imagen.ruta };
     await guardar();
   } else {
-    aviso?.('Siguiendo el video que Veo ya estaba haciendo…');
+    aviso?.(`Siguiendo el video que ${nombreMotor} ya estaba haciendo…`);
   }
   let fallosSeguidos = 0;
   for (let i = 1; i <= CONSULTAS; i++) {
     await dormir(cada, control);
     const pasados = Math.round((Date.now() - (plano.operacion.inicio || Date.now())) / 1000);
-    aviso?.(`Veo está haciendo el video (${pasados >= 60 ? Math.floor(pasados / 60) + ' min ' + (pasados % 60) + ' s' : pasados + ' s'}; suele tardar de 1 a 4 minutos)…`);
+    aviso?.(`${nombreMotor} está haciendo el video (${pasados >= 60 ? Math.floor(pasados / 60) + ' min ' + (pasados % 60) + ' s' : pasados + ' s'}; suele tardar de 1 a 4 minutos)…`);
     let r;
     try {
-      r = await llamar('/api/video-estado', { metodo: 'POST', cuerpo: { proyecto: proyectoId, operacion: plano.operacion.nombre }, senal: control?.abortador.signal });
+      r = await llamar('/api/video-estado', { metodo: 'POST', cuerpo: { proyecto: proyectoId, operacion: plano.operacion.nombre, clave: 'video-' + plano.id }, senal: control?.abortador.signal });
       fallosSeguidos = 0;
     } catch (e) {
       if (e.detenido || control?.detenido) throw errorDetenido();
