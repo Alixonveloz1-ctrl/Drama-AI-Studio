@@ -26,12 +26,57 @@ const MENSAJE_BLOQUEO = 'Google bloqueó este video con su filtro de seguridad. 
 const esFiltroDeCaras = texto => /person\/face|face generation|17301594/i.test(String(texto || ''));
 const MENSAJE_CARAS = 'Google bloqueó este video porque su filtro de caras creyó ver a una persona real en la foto del plano. La foto es normal: ese filtro se equivoca a veces con las caras fotorrealistas y no se puede apagar. Reintentar con la misma imagen no sirve: regenera la imagen de este plano (la nueva versión de la cara suele pasar) y vuelve a generar el video.';
 const OPERACION = /^projects\/[\w-]+\/locations\/[\w-]+\/publishers\/google\/models\/([\w.-]+)\/operations\/[\w-]+$/;
+// Omni no arranca una «operación» de Veo sino una interacción (global).
+const INTERACCION = /^projects\/[\w-]+\/locations\/global\/interactions\/[\w-]+$/;
 
 module.exports = puerta({ metodos: ['POST'] }, async (req, { google }) => {
   const b = req.body || {};
   const id = b.proyecto;
   medios.carpeta(id);
   const operacion = String(b.operacion || '');
+
+  // ─── Omni: la interacción se consulta por su nombre y el clip llega
+  // dentro de la respuesta (no lo escribe Google en el bucket como Veo):
+  // terminado, se guarda aquí en la ruta del plano y se devuelve igual.
+  if (INTERACCION.test(operacion)) {
+    const { cuenta, token } = await google();
+    let rO;
+    try {
+      rO = await fetch(`https://aiplatform.googleapis.com/v1beta1/${operacion}`, {
+        headers: { Authorization: `Bearer ${token}`, 'X-Goog-User-Project': operacion.split('/')[1] },
+        signal: AbortSignal.timeout(20000),
+      });
+    } catch (e) {
+      throw new ErrorEstudio('No hubo conexión con Google para consultar el video: ' + e.message, { estado: 502, tipo: 'google' });
+    }
+    const crudoO = await rO.text();
+    let dO;
+    try { dO = JSON.parse(crudoO); } catch { dO = { error: { message: crudoO.slice(0, 300) || `HTTP ${rO.status}` } }; }
+    if (!rO.ok) throw errorDeGoogle('la consulta del video (Omni)', rO.status, dO);
+    const estadoO = String(dO.status || '').toLowerCase();
+    if (dO.error || estadoO === 'failed') {
+      const errO = dO.error || {};
+      const detalle = `${errO.code || ''} — ${errO.message || JSON.stringify(errO)}`.slice(0, 1500);
+      if (clasificar(detalle) === 'bloqueo') throw new ErrorEstudio(esFiltroDeCaras(detalle) ? MENSAJE_CARAS : MENSAJE_BLOQUEO, { estado: 422, tipo: 'bloqueo', detalle });
+      throw new ErrorEstudio('Omni terminó la interacción con un error y no hizo el video.', { estado: 502, tipo: 'veo_fallo', detalle });
+    }
+    if (estadoO !== 'completed') return { listo: false };
+    const salida = dO.output_video || dO.output?.output_video || dO.response?.output_video || {};
+    const prefijo = `gs://${cfg.bucket}/`;
+    const gs = String(salida.gcs_uri || salida.gcsUri || (String(salida.uri || '').startsWith('gs://') ? salida.uri : ''));
+    let ruta;
+    if (gs.startsWith(prefijo)) {
+      ruta = medios.exigirDelProyecto(id, gs.slice(prefijo.length));
+    } else if (typeof salida.data === 'string' && salida.data) {
+      if (typeof b.clave !== 'string' || !b.clave) throw new ErrorEstudio('Falta la clave del plano para guardar el video de Omni.', { estado: 400, tipo: 'peticion' });
+      ruta = medios.rutaMedio(id, b.clave, 'mp4');
+      await medios.guardar(token, ruta, Buffer.from(salida.data, 'base64'), 'video/mp4', { espera: 25000 });
+    } else {
+      throw new ErrorEstudio('Omni terminó pero no devolvió el video.', { estado: 502, tipo: 'veo_fallo', detalle: JSON.stringify(dO).slice(0, 300) });
+    }
+    return { listo: true, ruta, url: firmarUrl(cuenta, cfg.bucket, ruta, { segundos: SIETE_DIAS }) };
+  }
+
   const coincide = operacion.match(OPERACION);
   if (!coincide || !MODELOS_VIDEO.includes(coincide[1])) throw new ErrorEstudio('Esa operación de video no es válida.', { estado: 400, tipo: 'peticion' });
   const modelo = coincide[1];
