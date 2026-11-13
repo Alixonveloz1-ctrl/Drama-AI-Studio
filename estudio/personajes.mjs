@@ -27,9 +27,9 @@ import { explicar } from './red.mjs';
 import { escapar, avisar, verImagen, sinMoverPantalla } from './interfaz.mjs';
 
 const MODELOS = [
-  { valor: 'gemini-3.1-flash-image', etiqueta: 'Nano Banana 2 (predeterminado)' },
+  { valor: 'gemini-nano-banana-2.1', etiqueta: 'Nano Banana 2.1 (predeterminado)' },
+  { valor: 'gemini-3.1-flash-image', etiqueta: 'Nano Banana 2 (Flash)' },
   { valor: 'gemini-3-pro-image', etiqueta: 'Nano Banana Pro (más calidad)' },
-  { valor: 'gemini-nano-banana-2.1', etiqueta: 'Nano Banana 2.1 (nuevo)' },
 ];
 
 let raiz = null;
@@ -40,18 +40,31 @@ let voces = null;        // las voces que Google ofrece (se piden una vez)
 
 export { MODELOS as MODELOS_IMAGEN };
 
-// El modelo de las ESCENAS (planos): vive en ajustes.modeloImagen y lo
-// elige el selector de la pantalla Escenas.
+// REGLA del dueño (2026-11-12, sustituye a la del Flash): el modelo de
+// imagen predeterminado es SIEMPRE el Nano Banana 2.1 — en Personajes y
+// en Escenas, en todos los proyectos, y al cerrar y reabrir la app se
+// entra con el 2.1 puesto. Por eso la elección a mano vive en la SESIÓN
+// (memoria de la pestaña) y no manda el ajuste guardado: si el dueño
+// elige otro modelo para algo puntual (el Pro para un personaje de
+// referencia), vale mientras la app siga abierta, y al reabrir amanece
+// en el 2.1 — ningún modelo caro puede quedar pegado de una sesión a
+// otra, que es exactamente el accidente que ya le costó dinero.
+// Los dos selectores siguen separados: el de Personajes no toca el de
+// Escenas ni al revés.
+let elegidoImagen = null;
+let elegidoPersonajes = null;
+const valido = v => MODELOS.some(m => m.valor === v) ? v : null;
+export function fijarModeloImagen(valor) { elegidoImagen = valido(valor); }
+export function fijarModeloPersonajes(valor) { elegidoPersonajes = valido(valor); }
+
+// El modelo de las ESCENAS (planos): el de la sesión o el 2.1.
 export function modeloImagen(datos) {
-  return MODELOS.some(m => m.valor === datos?.ajustes?.modeloImagen) ? datos.ajustes.modeloImagen : MODELOS[0].valor;
+  return elegidoImagen || MODELOS[0].valor;
 }
 
-// El modelo de los PERSONAJES es OTRO ajuste, separado a propósito
-// (regla del dueño, 2026-11-12): él a veces genera las referencias con
-// el Pro elegido a mano, y ese Pro no debe colarse jamás a las escenas.
-// Cada pantalla guarda y lee SOLO el suyo; los dos parten del Flash.
+// El modelo de los PERSONAJES: el de la sesión o el 2.1.
 export function modeloPersonajes(datos) {
-  return MODELOS.some(m => m.valor === datos?.ajustes?.modeloPersonajes) ? datos.ajustes.modeloPersonajes : MODELOS[0].valor;
+  return elegidoPersonajes || MODELOS[0].valor;
 }
 
 export function montarPersonajes(contenedor) {
@@ -75,6 +88,7 @@ export function montarPersonajes(contenedor) {
     if (evento.target.matches('[name="modeloPersonajes"]')) {
       const d = proyectoActual()?.datos;
       if (!d) return;
+      fijarModeloPersonajes(evento.target.value);
       d.ajustes = { ...(d.ajustes || {}), modeloPersonajes: evento.target.value };
       guardar().catch(e => avisar(explicar(e), 'error'));
     }
