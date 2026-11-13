@@ -243,6 +243,22 @@ test('desglose: mínimos por palabras y por duración', () => {
   assert.ok(D.maximoPlanos(e) > D.minimoPlanos(e));
 });
 
+test('desglose: los segundos que escribe el director quedan entre 3 y 6 (sin dato, 4)', () => {
+  const e = escenaDePrueba();
+  const u = universoValido();
+  const j = desgloseValido(e);
+  j.escenas[0].planos[0].segundos = 9;
+  j.escenas[0].planos[1].segundos = 1;
+  j.escenas[0].planos[2].segundos = 5;
+  const r = D.validarDesglose(j, [e], u);
+  assert.deepEqual(r.problemas, []);
+  const planos = r.resultado[e.id];
+  assert.equal(planos[0].segundos, 6, 'más de 6 se corta a 6');
+  assert.equal(planos[1].segundos, 3, 'menos de 3 se sube a 3');
+  assert.equal(planos[2].segundos, 5);
+  assert.equal(planos[3].segundos, 4, 'sin dato queda 4, como antes');
+});
+
 test('desglose bueno se acepta; anclas inventadas, desorden, pocos planos, mirar a cámara y proporción mala se rechazan', () => {
   const e = escenaDePrueba();
   const u = universoValido();
