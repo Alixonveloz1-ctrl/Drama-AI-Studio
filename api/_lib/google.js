@@ -30,7 +30,7 @@ const leer = (nombre, porDefecto) => {
 // El primero de cada lista es el predeterminado. El modelo elegido es el que
 // se usa: si falla, se devuelve el error de Google tal cual y NUNCA se cambia
 // por otro a espaldas del dueño.
-const MODELOS_IMAGEN = ['gemini-3.1-flash-image', 'gemini-3-pro-image', 'gemini-nano-banana-2.1'];
+const MODELOS_IMAGEN = ['gemini-nano-banana-2.1', 'gemini-3.1-flash-image', 'gemini-3-pro-image'];
 const MODELOS_VIDEO = ['veo-3.1-lite-generate-001', 'veo-3.1-fast-generate-001', 'veo-3.1-generate-001', 'gemini-omni-1.2-flash-360p', 'gemini-omni-1.2-flash-720p'];
 
 // Gemini Omni 1.2 Flash NO es un Veo: no va por predictLongRunning sino por
