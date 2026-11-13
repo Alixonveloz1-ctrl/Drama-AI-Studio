@@ -193,9 +193,12 @@ no inventar ninguno.**
 | Texto | `gemini-3.1-pro-preview` | Región `global` obligatoria |
 | Imagen (por defecto) | `gemini-3.1-flash-image` | Nano Banana 2, el económico |
 | Imagen (calidad) | `gemini-3-pro-image` | Nano Banana Pro, a mano cuando haga falta |
+| Imagen (nuevo, a mano) | `gemini-nano-banana-2.1` | Nano Banana 2.1, para las pruebas del dueño (2026-11-12) |
 | Video (por defecto) | `veo-3.1-lite-generate-001` | El económico |
 | Video (equilibrado) | `veo-3.1-fast-generate-001` | |
 | Video (máxima calidad) | `veo-3.1-generate-001` | |
+| Video Omni 360p (a mano) | `gemini-omni-1.2-flash` | Selector `gemini-omni-1.2-flash-360p`; API de Interacciones |
+| Video Omni 720p (a mano) | `gemini-omni-1.2-flash` | Selector `gemini-omni-1.2-flash-720p`; API de Interacciones |
 | Música | `lyria-002` | |
 | Voz | Gemini TTS por Vertex AI | 30 voces, ver 14.1 |
 | Subtítulos | Speech-to-Text `latest_long` | Idioma `es-US` |
@@ -654,7 +657,9 @@ constantemente y es la razón por la que no se notan los fallos:
 ## 12. Imágenes
 
 - Modelo por defecto `gemini-3.1-flash-image`; `gemini-3-pro-image` disponible en
-  el selector, de último, para elegirlo a mano.
+  el selector, de último, para elegirlo a mano. `gemini-nano-banana-2.1` también
+  está en el selector (decisión del dueño, 2026-11-12) para probarlo a mano; el
+  predeterminado no cambia.
 - Una imagen por plano, en el formato del proyecto (9:16 o 16:9).
 - Conmutación de región ante 429: `us-central1` → `europe-west4` → `us-east4`.
 - Las referencias que acompañan al prompt son: la ficha del personaje (con su
@@ -673,6 +678,12 @@ constantemente y es la razón por la que no se notan los fallos:
 - Modelo por defecto `veo-3.1-lite-generate-001`, con los otros dos en el selector.
 - **Duración 4 segundos** para los planos de acción. Veo acepta solo 4, 6 u 8.
 - Se arranca con `:predictLongRunning` y se consulta con `fetchPredictOperation`.
+- Omni (decisión del dueño, 2026-11-12): `gemini-omni-1.2-flash` está en el
+  selector en 360p y 720p para probarlo a mano. No es un Veo: se arranca por la
+  API de Interacciones en segundo plano (`background`) y se consulta por el
+  nombre de la interacción; el clip llega dentro de la respuesta y lo guarda
+  el servidor en la ruta del plano. Misma duración de 4 s; sin prompt negativo
+  aparte (las prohibiciones viajan dentro del texto, como línea «Avoid:»).
 - `storageUri` apuntando al bucket, para que el MP4 no pase por el endpoint.
 - La operación iniciada se guarda: si el dueño recarga la página, la consulta
   continúa.
