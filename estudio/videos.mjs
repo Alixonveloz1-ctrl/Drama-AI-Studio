@@ -233,7 +233,7 @@ export function promptVideo(plano, escenario, opciones = {}) {
   const movimiento = String(plano.movimiento || '').trim();
   const camara = CAMARA_ESCRITA.test(movimiento);
   // La dirección cubre el clip ENTERO: el movimiento escrito llena solo
-  // parte de los 4 segundos, y lo que no se dirigía, Veo lo rellenaba
+  // parte del clip, y lo que no se dirigía, Veo lo rellenaba
   // (la gente se iba, salía corriendo o saltaba en el último segundo).
   // Por eso ambos motivos cierran con el estado final fijo hasta el fin.
   const motivo = movimiento
@@ -328,7 +328,7 @@ export async function videoPlano({ proyectoId, datos, escena, plano, control, av
     const r = await pedirMedio('/api/video-inicio', {
       proyecto: proyectoId, clave: 'video-' + plano.id, imagen: plano.imagen.ruta,
       prompt: promptVideo(plano, escenario, { voz, contexto }), negativo: negativoVideo(plano, escenario, { voz }),
-      formato: datos.formulario.formato, modelo: modeloVideo(datos),
+      formato: datos.formulario.formato, modelo: modeloVideo(datos), segundos: plano.segundos,
     }, { control, aviso });
     plano.operacion = { nombre: r.operacion, modelo: r.modelo, inicio: Date.now(), imagen: plano.imagen.ruta };
     await guardar();
