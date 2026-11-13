@@ -46,7 +46,8 @@ export function montarEscenas(contenedor) {
   raiz.addEventListener('toggle', evento => {
     const d = evento.target.closest?.('details.escena-planos');
     if (!d || evento.target !== d || !abiertas) return;
-    if (d.open) abiertas.add(d.dataset.escena); else abiertas.delete(d.dataset.escena);
+    if (d.open) { abiertas.add(d.dataset.escena); cargarImagenes(d, proyectoActual()?.id); }
+    else abiertas.delete(d.dataset.escena);
   }, true);
   // Selectores de modelo (plegados): se guardan en el proyecto.
   raiz.addEventListener('change', evento => {
@@ -152,7 +153,7 @@ function pintarAhora() {
       ${caja('e-' + e.id)}
       <div class="planos">${(e.planos || []).map((x, i) => `
         <div class="plano${vertical ? ' lado' : ''}">
-          <div class="marco ${vertical ? 'vertical' : 'horizontal'}">${x.video ? `<video data-ruta="${escapar(x.video.ruta)}"${x.imagen ? ` data-portada="${escapar(x.imagen.ruta)}"` : ''} controls playsinline preload="metadata"></video>` : x.imagen ? `<img data-ruta="${escapar(x.imagen.ruta)}" alt="Plano ${i + 1}" data-ver="1">` : `<span>Plano ${i + 1}</span>`}</div>
+          <div class="marco ${vertical ? 'vertical' : 'horizontal'}">${x.video ? `<video data-ruta="${escapar(x.video.ruta)}"${x.imagen ? ` data-portada="${escapar(x.imagen.ruta)}"` : ''} controls playsinline preload="none"></video>` : x.imagen ? `<img data-ruta="${escapar(x.imagen.ruta)}" alt="Plano ${i + 1}" data-ver="1" loading="lazy" decoding="async">` : `<span>Plano ${i + 1}</span>`}</div>
           <div class="plano-datos">
             <span class="etiqueta ${x.tipo === 'accion' ? 'propio' : 'defecto'}">${x.tipo === 'accion' ? 'Acción · 4 s' : 'Cobertura · 1,5–3 s'}</span>
             <span class="nota">${x.encuadre ? escapar(NOMBRE_ENCUADRE[x.encuadre]) + ' · ' : ''}peso ${x.peso}${x.personajes.length ? ' · ' + escapar(x.personajes.map(id => nombreDe(u, id)).join(', ')) : ''}${x.entran?.length ? ' · entra ' + escapar(x.entran.map(id => nombreDe(u, id)).join(', ')) : ''}${x.salen?.length ? ' · sale ' + escapar(x.salen.map(id => nombreDe(u, id)).join(', ')) : ''}</span>
@@ -183,7 +184,13 @@ function pintarAhora() {
     ${sinMusica ? `<button type="button" class="btn ancho" data-accion="musica">Generar la música (${sinMusica} ${sinMusica === 1 ? 'pista' : 'pistas'})</button>` : `<button type="button" class="btn-sec" data-accion="rehacer-musica">Rehacer la música</button>`}
   </div>`;
   raiz.querySelectorAll('[data-accion]').forEach(b => { if (ocupado && !b.dataset.libre) b.disabled = true; });
-  cargarImagenes(raiz, p.id);
+  // SOLO se descargan los medios de las escenas ABIERTAS (y la música):
+  // cargar de golpe las imágenes de todo el episodio (630 planos en La
+  // Balsa) revienta la memoria de la pestaña del teléfono — se reinicia
+  // sola y el teléfono se recalienta — y el dueño revisa una escena cada
+  // vez. Al abrir otra escena, su «toggle» carga los suyos.
+  for (const det of raiz.querySelectorAll('details.escena-planos[open]')) cargarImagenes(det, p.id);
+  for (const au of raiz.querySelectorAll('audio[data-ruta]')) cargarImagenes(au.closest('.card') || au.parentElement, p.id);
 }
 
 function aviso(texto) {
