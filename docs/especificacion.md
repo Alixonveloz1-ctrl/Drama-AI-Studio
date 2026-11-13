@@ -631,6 +631,33 @@ planos. Es la proporción real del referente de supervivencia.
   para que no pueda adelantar acontecimientos.
 - Dentro de una escena se conserva entre tomas: posición, ropa, lesiones, objetos
   y estado físico.
+- **Memoria de equipo entre escenas** (arreglo del dueño, 2026-11-13, tras el
+  fallo de la escena 14 de «La Balsa»: el diálogo decía «arpón», Leo ya tenía
+  una lanza metálica dada por el Sistema y la foto salió con un palo de
+  madera, con una nota del revisor que justificaba el invento). Los lugares
+  tienen inventario cerrado, pero los objetos que un personaje **gana o lleva**
+  a lo largo de la historia no vivían en ninguna ficha. Ahora, antes de
+  desglosar, una lectura del guion **en orden** (solo texto) anota qué gana,
+  pierde o reemplaza cada personaje, con la descripción en inglés **exacta**
+  de cada objeto y desde qué escena lo trae; esa memoria se guarda en el
+  episodio (con huella del guion: si el texto cambia, se reconstruye) y
+  acompaña a cada llamada de desglose, de corrección de campos y de revisión
+  del director de arte.
+- **Prohibido inventar equipo.** Cuando un plano muestra un objeto de la
+  memoria, su descripción se copia **palabra por palabra** en prompt y estado:
+  es el mismo objeto en toda la serie. La palabra suelta del diálogo («arpón»)
+  nunca crea un objeto nuevo: se filma el que el personaje ya trae. Nada de
+  versiones improvisadas de lo que el personaje tiene en su forma establecida.
+- **Avisos en vez de inventos.** Si un plano necesita un objeto que no está ni
+  en la memoria de equipo, ni en el inventario del lugar, ni lo entrega el
+  texto de la escena, el director de arte **no lo corrige inventándolo ni lo
+  excusa con una nota**: lo devuelve como «aviso» — la tarjeta del plano
+  muestra la nota empezando por «AVISO» y el dueño decide. Un aviso no toca
+  el prompt ni marca la imagen obsoleta.
+- **Rehacer un desglose no puede descolgar los medios.** El plano que conserva su
+  ancla hereda la imagen (y el video) ya pagados del desglose anterior; si el
+  prompt nuevo difiere, la imagen heredada queda marcada obsoleta, igual que
+  en una corrección del director de arte.
 - Cada plano recibe un **peso editorial de 1 a 5**. El audio de la escena se
   reparte proporcionalmente a esos pesos, de modo que un detalle o una reacción
   rápida duren menos que la frase o la acción principal. Sin esto, el audio se
