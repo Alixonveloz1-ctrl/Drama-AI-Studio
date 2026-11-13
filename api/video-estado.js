@@ -61,18 +61,52 @@ module.exports = puerta({ metodos: ['POST'] }, async (req, { google }) => {
       throw new ErrorEstudio('Omni terminó la interacción con un error y no hizo el video.', { estado: 502, tipo: 'veo_fallo', detalle });
     }
     if (estadoO !== 'completed') return { listo: false };
-    const salida = dO.output_video || dO.output?.output_video || dO.response?.output_video || {};
+    // DÓNDE VIAJA EL VIDEO (documentación oficial de Google y respuesta
+    // real del 2026-11-12): el campo «output_video» es SOLO de los SDK;
+    // por REST el video viene dentro de los pasos de la interacción — el
+    // paso «model_output» trae partes y la de tipo «video» lleva los
+    // bytes («data») o la dirección de entrega («uri»). La primera
+    // versión buscaba output_video y por eso la app decía «terminó pero
+    // no devolvió el video» aunque Google sí lo había generado.
+    let parteVideo = null, textoModelo = '';
+    for (const paso of (Array.isArray(dO.steps) ? dO.steps : [])) {
+      if (!Array.isArray(paso?.content)) continue;
+      if (!textoModelo) { const t = paso.content.find(x => x?.type === 'text' && x.text); if (t) textoModelo = String(t.text); }
+      if (paso.type !== 'model_output') continue;
+      parteVideo = paso.content.find(x => x?.type === 'video') || parteVideo;
+      if (parteVideo) break;
+    }
+    const salida = parteVideo || dO.output_video || dO.output?.output_video || dO.response?.output_video || {};
     const prefijo = `gs://${cfg.bucket}/`;
     const gs = String(salida.gcs_uri || salida.gcsUri || (String(salida.uri || '').startsWith('gs://') ? salida.uri : ''));
     let ruta;
+    const guardarBytes = async bytes => {
+      if (typeof b.clave !== 'string' || !b.clave) throw new ErrorEstudio('Falta la clave del plano para guardar el video de Omni.', { estado: 400, tipo: 'peticion' });
+      ruta = medios.rutaMedio(id, b.clave, 'mp4');
+      await medios.guardar(token, ruta, bytes, 'video/mp4', { espera: 25000 });
+    };
     if (gs.startsWith(prefijo)) {
       ruta = medios.exigirDelProyecto(id, gs.slice(prefijo.length));
     } else if (typeof salida.data === 'string' && salida.data) {
-      if (typeof b.clave !== 'string' || !b.clave) throw new ErrorEstudio('Falta la clave del plano para guardar el video de Omni.', { estado: 400, tipo: 'peticion' });
-      ruta = medios.rutaMedio(id, b.clave, 'mp4');
-      await medios.guardar(token, ruta, Buffer.from(salida.data, 'base64'), 'video/mp4', { espera: 25000 });
+      await guardarBytes(Buffer.from(salida.data, 'base64'));
+    } else if (gs || (typeof salida.uri === 'string' && salida.uri)) {
+      // Entrega por dirección (otro cubo de Google o una URL): se
+      // descargan los bytes y el clip se guarda en la ruta del plano.
+      let bytes = null;
+      try {
+        let rD;
+        if (gs) {
+          const resto = gs.slice(5); const corte = resto.indexOf('/');
+          rD = await fetch(`https://storage.googleapis.com/storage/v1/b/${encodeURIComponent(resto.slice(0, corte))}/o/${encodeURIComponent(resto.slice(corte + 1))}?alt=media`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(20000) });
+        } else {
+          rD = await fetch(salida.uri, { signal: AbortSignal.timeout(20000) });
+        }
+        if (rD.ok) bytes = Buffer.from(await rD.arrayBuffer());
+      } catch { bytes = null; }
+      if (!bytes?.length) throw new ErrorEstudio('Omni hizo el video pero no se pudo descargar de su dirección de entrega.', { estado: 502, tipo: 'veo_fallo' });
+      await guardarBytes(bytes);
     } else {
-      throw new ErrorEstudio('Omni terminó pero no devolvió el video.', { estado: 502, tipo: 'veo_fallo', detalle: JSON.stringify(dO).slice(0, 300) });
+      throw new ErrorEstudio('Omni terminó pero no devolvió el video.', { estado: 502, tipo: 'veo_fallo', detalle: (textoModelo || JSON.stringify(dO)).slice(0, 300) });
     }
     return { listo: true, ruta, url: firmarUrl(cuenta, cfg.bucket, ruta, { segundos: SIETE_DIAS }) };
   }
