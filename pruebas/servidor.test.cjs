@@ -666,7 +666,9 @@ test('video: el largo lo decide el director (3 a 6 s); Veo sube a su escalón y 
   await estado(videoReq('/api/video-estado', { proyecto: 'pimagen0001', operacion: INTERACCION, clave: 'video-e1-1' }), salida);
   assert.equal(salida.valor.listo, false);
   const mp4b64 = Buffer.from('mp4-falso').toString('base64');
-  v = vertexImagen(() => new Response(JSON.stringify({ name: INTERACCION, status: 'completed', output_video: { data: mp4b64, mime_type: 'video/mp4' } })));
+  // La forma REAL de la respuesta (documentación oficial): output_video
+  // es solo de los SDK; por REST el video va en los pasos, parte «video».
+  v = vertexImagen(() => new Response(JSON.stringify({ name: INTERACCION, status: 'completed', steps: [{ type: 'model_output', content: [{ type: 'video', data: mp4b64, mime_type: 'video/mp4' }] }] })));
   salida = respuesta();
   await estado(videoReq('/api/video-estado', { proyecto: 'pimagen0001', operacion: INTERACCION, clave: 'video-e1-1' }), salida);
   assert.equal(salida.statusCode, 200, JSON.stringify(salida.valor));
