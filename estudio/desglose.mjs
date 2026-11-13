@@ -119,14 +119,15 @@ ${lineas}`;
 export const SISTEMA_FOTOGRAFIA = `Eres el DIRECTOR DE FOTOGRAFÍA de un drama corto asiático de acción real (actores reales, imagen pulida de portada) que se mira en el teléfono. Decides cuántos planos tiene cada escena, qué muestra cada uno y su movimiento, a partir del guion YA ESCRITO. No inventas historia.
 
 DOS TIPOS DE PLANO (el ritmo sale de alternarlos):
-- "accion": alguien camina, pelea, construye, nada, conduce o manipula un objeto. Se anima con video: dura 4 segundos.
-- "cobertura": una cara que reacciona, una mano, un objeto o un plano general de paisaje. Es imagen fija con movimiento de cámara en el montaje: 1,5 a 3 segundos.
+- "accion": alguien camina, pelea, construye, nada, conduce o manipula un objeto. Se anima con video: TÚ decides cuánto dura, entre 3 y 6 segundos, y lo escribes en "segundos".
+- "cobertura": una cara que reacciona, una mano, un objeto o un plano general de paisaje. Es imagen fija con movimiento de cámara en el montaje: 1,5 a 3 segundos. Si lo que pasa en un momento cabe en menos de 3 segundos, es cobertura, nunca acción.
 - Proporción objetivo: 70 % acción y 30 % cobertura, contando planos.
 
 REGLAS DEL DESGLOSE:
 - Cada plano lleva "ancla": palabras CONSECUTIVAS copiadas literalmente del texto de la escena. Si el ancla sale de una LÍNEA HABLADA (diálogo, pensamiento o Sistema), debe cubrir FRASES COMPLETAS de esa línea: empieza donde empieza una oración (al principio de la línea o justo tras un punto, una exclamación o una interrogación) y termina donde termina una oración (en su signo de cierre). NUNCA partas una oración por la mitad: si una oración es larga, el plano la lleva ENTERA, aunque pase de 14 palabras; si una línea tiene varias oraciones cortas, un plano puede llevar dos o tres seguidas. Esto es innegociable: la voz de ese plano dice el ancla entera, y una frase partida no cabe al montar la narración completa. Si el ancla sale de «lo que se ve al empezar» (la descripción, que no se habla), basta un fragmento consecutivo de 4 a 14 palabras. Las anclas siguen el orden del texto: un plano nunca muestra algo que ocurre después de su ancla.
 - Estado físico acumulado: entre planos se conservan posición, ropa, lesiones, objetos y quién está presente. Un corte cambia el encuadre, no la realidad.
 - Peso editorial de 1 a 5 por plano: la frase o la acción principal pesa más que un detalle o una reacción rápida.
+- \"segundos\" de cada plano de acción (3 a 6, entero): elige según lo que el plano lleva — su ancla hablada a ritmo normal (unas 2,5 palabras por segundo) y la acción que se ve. Una frase corta con un gesto: 3 o 4. Una frase larga o una acción que se desarrolla: 5 o 6. Nunca menos de 3 ni más de 6.
 - Personajes visibles: ids exactos del reparto (o de una variante), como máximo 3 por plano.
 - Nadie mira a la cámara ni le habla al espectador: los personajes actúan dentro de la escena.
 
@@ -177,7 +178,7 @@ Formato de imagen: ${datos.formulario.formato === '16:9' ? '16:9 horizontal' : '
 ${escenasParaPrompt(u, escenas)}
 ${extra}
 Devuelve JSON con EXACTAMENTE ${escenas.length} escenas, en el mismo orden:
-{"escenas":[{"id":"${escenas[0].id}","presentes":["c1","c2"],"planos":[{"tipo":"accion | cobertura","encuadre":"general | medio | primer_plano | detalle","ancla":"palabras copiadas del texto","personajes":["c1"],"entran":[],"salen":[],"estado":"where every present person is and what they do at this instant, by name, plus key objects","cambio":"what changed since the previous shot (empty only in the first shot)","peso":3,"prompt":"Scene with …","movimiento":"… (solo acción)","sistema":"texto de la línea del Sistema que aparece sobre este plano, o vacío"}]}]}`,
+{"escenas":[{"id":"${escenas[0].id}","presentes":["c1","c2"],"planos":[{"tipo":"accion | cobertura","encuadre":"general | medio | primer_plano | detalle","ancla":"palabras copiadas del texto","personajes":["c1"],"entran":[],"salen":[],"estado":"where every present person is and what they do at this instant, by name, plus key objects","cambio":"what changed since the previous shot (empty only in the first shot)","peso":3,"segundos":4,"prompt":"Scene with …","movimiento":"… (solo acción)","sistema":"texto de la línea del Sistema que aparece sobre este plano, o vacío"}]}]}`,
     temperatura: 0.5,
   };
 }
@@ -248,6 +249,9 @@ export function validarDesglose(json, escenas, universo) {
       estado: String(p?.estado || '').trim(),
       cambio: String(p?.cambio || '').trim(),
       peso: Math.max(1, Math.min(5, Math.round(Number(p?.peso) || 2))),
+      // El largo del video lo decide el director (regla del dueño,
+      // 2026-11-12): entre 3 y 6 segundos; sin dato, 4 como antes.
+      segundos: Math.max(3, Math.min(6, Math.round(Number(p?.segundos) || 4))),
       prompt: String(p?.prompt || '').trim(),
       movimiento: String(p?.movimiento || '').trim(),
       sistema: String(p?.sistema || '').trim(),
