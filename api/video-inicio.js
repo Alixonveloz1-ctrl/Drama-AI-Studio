@@ -7,7 +7,10 @@
 //    la carpeta del proyecto: nunca pasa por aquí.
 //  · La imagen del plano se lee del bucket en el servidor (el navegador solo
 //    manda su ruta), así no hay límite de 4,5 MB que valga.
-//  · 4 segundos: es lo que dura un plano de acción y Veo solo acepta 4, 6 u 8.
+//  · El largo lo decide el director en el desglose (regla del dueño,
+//    2026-11-12): de 3 a 6 segundos por plano de acción. Veo solo acepta
+//    4, 6 u 8 y se sube al escalón que deja caber la toma; Omni (abajo)
+//    acepta el segundo exacto.
 //  · Audio nativo: Veo genera el ambiente y los efectos mirando el video que
 //    él mismo crea; el prompt le prohíbe voces (sección 13.3).
 //  · El prompt pasa por el mismo saneado que el de imagen: Veo tiene el mismo
@@ -26,6 +29,8 @@ module.exports = puerta({ metodos: ['POST'] }, async (req, { google }) => {
   const b = req.body || {};
   const id = b.proyecto;
   const modelo = MODELOS_VIDEO.includes(b.modelo) ? b.modelo : cfg.modeloVideo;
+  const pedidos = Math.max(3, Math.min(6, Math.round(Number(b.segundos) || SEGUNDOS)));
+  const segundosVeo = pedidos <= 4 ? 4 : 6;
   if (typeof b.prompt !== 'string' || b.prompt.trim().length < 20) throw new ErrorEstudio('Falta el texto del video.', { estado: 400, tipo: 'peticion' });
   // La carpeta del clip sale de la clave del plano: siempre dentro del proyecto.
   const carpetaClip = medios.rutaMedio(id, b.clave, 'mp4').replace(/\.mp4$/, '/');
@@ -42,7 +47,8 @@ module.exports = puerta({ metodos: ['POST'] }, async (req, { google }) => {
   // interacción. Omni no tiene prompt negativo aparte: las prohibiciones
   // viajan dentro del texto como una línea «Avoid:». La duración es la
   // misma de los planos de Veo (4 s), para que el dueño compare motores
-  // con la misma toma y el mismo largo.
+  // con la misma toma. El largo es el que el director escribió para el
+  // plano (3 a 6 s): Omni lo acepta exacto, segundo a segundo.
   const omni = omniDe(modelo);
   if (omni) {
     const negativo = typeof b.negativo === 'string' && b.negativo.trim() ? `\nAvoid: ${b.negativo.trim().slice(0, 1500)}` : '';
@@ -56,7 +62,7 @@ module.exports = puerta({ metodos: ['POST'] }, async (req, { google }) => {
         type: 'video',
         resolution: omni.resolucion,
         aspect_ratio: b.formato === '16:9' ? '16:9' : '9:16',
-        duration: `${SEGUNDOS}s`,
+        duration: `${pedidos}s`,
       },
       generation_config: { video_config: { task: 'image_to_video' } },
       background: true,
@@ -79,7 +85,7 @@ module.exports = puerta({ metodos: ['POST'] }, async (req, { google }) => {
     if (!rO.ok) throw errorDeGoogle(`video (${modelo})`, rO.status, dO);
     const nombre = dO.name || (dO.id ? `projects/${proyecto}/locations/global/interactions/${dO.id}` : '');
     if (!nombre) throw new ErrorEstudio('Omni aceptó la petición pero no devolvió el número de la interacción.', { estado: 502, tipo: 'google' });
-    return { operacion: nombre, modelo, segundos: SEGUNDOS };
+    return { operacion: nombre, modelo, segundos: pedidos };
   }
 
   const cuerpo = {
@@ -90,7 +96,7 @@ module.exports = puerta({ metodos: ['POST'] }, async (req, { google }) => {
     parameters: {
       aspectRatio: b.formato === '16:9' ? '16:9' : '9:16',
       sampleCount: 1,
-      durationSeconds: SEGUNDOS,
+      durationSeconds: segundosVeo,
       generateAudio: true,
       personGeneration: 'allow_adult',
       // El prompt negativo es una LISTA DE COSAS, nunca una orden. Va en
@@ -117,5 +123,5 @@ module.exports = puerta({ metodos: ['POST'] }, async (req, { google }) => {
   try { d = JSON.parse(crudo); } catch { d = { error: { message: crudo.slice(0, 300) || `HTTP ${r.status}` } }; }
   if (!r.ok) throw errorDeGoogle(`video (${modelo})`, r.status, d);
   if (!d.name) throw new ErrorEstudio('Veo aceptó la petición pero no devolvió el número de la operación.', { estado: 502, tipo: 'google' });
-  return { operacion: d.name, modelo, segundos: SEGUNDOS };
+  return { operacion: d.name, modelo, segundos: segundosVeo };
 });
