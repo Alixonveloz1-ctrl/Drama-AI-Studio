@@ -693,6 +693,7 @@ constantemente y es la razón por la que no se notan los fallos:
   otra. `gemini-3.1-flash-image` y `gemini-3-pro-image` siguen en el
   selector para elegirlos a mano dentro de la sesión.
 - Una imagen por plano, en el formato del proyecto (9:16 o 16:9).
+- Cada escena abierta tiene su propio botón de tanda de imágenes: «Generar todas las imágenes de esta escena (N)» si ninguna tiene imagen vigente, «Generar las imágenes que faltan de esta escena (N)» si faltan algunas (la tanda salta las que ya están bien, como el lote general) y «Regenerar todas las imágenes de esta escena (N)» si la escena ya está completa. Petición del dueño del 2026-11-13.
 - Conmutación de región ante 429: `us-central1` → `europe-west4` → `us-east4`.
 - Las referencias que acompañan al prompt son: la ficha del personaje (con su
   contrato), el plano anterior de la cadena (con el contrato de continuidad) y,
