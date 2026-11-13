@@ -237,6 +237,7 @@ test('modelos y variables: los de la especificación, sin sustitutos', () => {
   assert.deepEqual(c.regionesImagen, ['us-central1', 'europe-west4', 'us-east4']);
   assert.equal(c.modeloVideo, 'veo-3.1-lite-generate-001');
   assert.equal(c.idiomaVoz, 'es-US');
+  assert.equal(c.modeloVozGemini, 'gemini-3.8-flash-tts');
   assert.equal(c.modeloMusica, 'lyria-3-pro-preview');
   assert.equal(c.ubicacionMusica, 'global');
   assert.equal(c.modeloSubtitulos, 'latest_long');
@@ -503,7 +504,7 @@ function vertexImagen(respuestaVertex) {
   const guardados = {}, llamadasVertex = [];
   google_responde = async (url, opciones = {}) => {
     if (url === 'https://oauth2.googleapis.com/token') return new Response(JSON.stringify({ access_token: 'ya29.servicio', expires_in: 3600 }));
-    if (url.includes('aiplatform.googleapis.com')) { llamadasVertex.push({ url, cuerpo: JSON.parse(opciones.body) }); return respuestaVertex(); }
+    if (url.includes('aiplatform.googleapis.com')) { llamadasVertex.push({ url, cuerpo: opciones.body ? JSON.parse(opciones.body) : null }); return respuestaVertex(); }
     if (url.includes('/upload/storage/v1/')) { guardados[new URL(url).searchParams.get('name')] = opciones.body; return new Response(JSON.stringify({ generation: '7' })); }
     if (url.includes('alt=media')) {
       if (url.includes('falta')) return new Response('{}', { status: 404 });
@@ -623,6 +624,55 @@ test('video-inicio: lee la imagen del bucket, pide 4 s con audio nativo, guarda 
   await inicio(videoReq('/api/video-inicio', { proyecto: 'pimagen0001', clave: 'video-e1-1', imagen: base + 'plano-e1-1.png', prompt: 'SHOT MOTION: Lin Feng slowly raises his head and looks away.' }), bloqueo);
   assert.equal(bloqueo.statusCode, 422);
   assert.equal(bloqueo.valor.tipo, 'bloqueo');
+});
+
+test('video: el largo lo decide el director (3 a 6 s); Veo sube a su escalón y Omni lo pide exacto', async () => {
+  conCuentaDeServicio();
+  process.env.GCS_OUTPUT_BUCKET = 'bucket-prueba';
+  const inicio = require('../api/video-inicio');
+  const promptOk = 'SHOT MOTION: Lin Feng slowly raises his head and looks away from the camera.';
+  // Veo con 5 s pedidos → 6 (su escalón que deja caber la toma); con 3 → 4.
+  let v = vertexImagen(() => new Response(JSON.stringify({ name: OPERACION })));
+  let salida = respuesta();
+  await inicio(videoReq('/api/video-inicio', { proyecto: 'pimagen0001', clave: 'video-e1-1', imagen: base + 'plano-e1-1.png', modelo: 'veo-3.1-lite-generate-001', segundos: 5, prompt: promptOk }), salida);
+  assert.equal(salida.statusCode, 200, JSON.stringify(salida.valor));
+  assert.equal(v.llamadasVertex[0].cuerpo.parameters.durationSeconds, 6);
+  assert.equal(salida.valor.segundos, 6);
+  v = vertexImagen(() => new Response(JSON.stringify({ name: OPERACION })));
+  salida = respuesta();
+  await inicio(videoReq('/api/video-inicio', { proyecto: 'pimagen0001', clave: 'video-e1-1', imagen: base + 'plano-e1-1.png', modelo: 'veo-3.1-lite-generate-001', segundos: 3, prompt: promptOk }), salida);
+  assert.equal(v.llamadasVertex[0].cuerpo.parameters.durationSeconds, 4);
+  // Omni: la interacción va al endpoint global, en segundo plano, con la
+  // resolución del selector y el segundo exacto que pidió el director.
+  const INTERACCION = 'projects/proyecto-prueba/locations/global/interactions/omni-123';
+  v = vertexImagen(() => new Response(JSON.stringify({ name: INTERACCION })));
+  salida = respuesta();
+  await inicio(videoReq('/api/video-inicio', { proyecto: 'pimagen0001', clave: 'video-e1-1', imagen: base + 'plano-e1-1.png', modelo: 'gemini-omni-1.2-flash-360p', segundos: 5, formato: '9:16', prompt: promptOk, negativo: 'text, watermark' }), salida);
+  assert.equal(salida.statusCode, 200, JSON.stringify(salida.valor));
+  assert.equal(salida.valor.operacion, INTERACCION);
+  assert.equal(salida.valor.segundos, 5);
+  assert.equal(v.llamadasVertex[0].url, 'https://aiplatform.googleapis.com/v1beta1/projects/proyecto-drama/locations/global/interactions');
+  const cuerpoO = v.llamadasVertex[0].cuerpo;
+  assert.equal(cuerpoO.model, 'gemini-omni-1.2-flash');
+  assert.deepEqual(cuerpoO.response_format, { type: 'video', resolution: '360p', aspect_ratio: '9:16', duration: '5s' });
+  assert.equal(cuerpoO.generation_config.video_config.task, 'image_to_video');
+  assert.equal(cuerpoO.background, true);
+  assert.match(cuerpoO.input[1].text, /Avoid: text, watermark$/, 'sin prompt negativo aparte: viaja en el texto');
+  // Omni estado: en curso → no listo; terminada con el video dentro → se
+  // guarda en la ruta del plano y se devuelve como cualquier video.
+  const estado = require('../api/video-estado');
+  v = vertexImagen(() => new Response(JSON.stringify({ name: INTERACCION, status: 'in_progress' })));
+  salida = respuesta();
+  await estado(videoReq('/api/video-estado', { proyecto: 'pimagen0001', operacion: INTERACCION, clave: 'video-e1-1' }), salida);
+  assert.equal(salida.valor.listo, false);
+  const mp4b64 = Buffer.from('mp4-falso').toString('base64');
+  v = vertexImagen(() => new Response(JSON.stringify({ name: INTERACCION, status: 'completed', output_video: { data: mp4b64, mime_type: 'video/mp4' } })));
+  salida = respuesta();
+  await estado(videoReq('/api/video-estado', { proyecto: 'pimagen0001', operacion: INTERACCION, clave: 'video-e1-1' }), salida);
+  assert.equal(salida.statusCode, 200, JSON.stringify(salida.valor));
+  assert.equal(salida.valor.listo, true);
+  assert.equal(salida.valor.ruta, base + 'video-e1-1.mp4');
+  assert.equal(String(v.guardados[base + 'video-e1-1.mp4']), 'mp4-falso', 'el clip de Omni quedó guardado en el bucket');
 });
 
 test('video-estado: consulta en el modelo que arrancó; listo con URL de 7 días; bloqueos y rutas ajenas', async () => {
@@ -815,6 +865,10 @@ test('voz: las voces se piden a Google (con su género) y cada tramo es una sola
   await voz(pedirA('/api/voz', null, 'GET'), lista);
   assert.equal(lista.statusCode, 200, JSON.stringify(lista.valor));
   assert.deepEqual(lista.valor.voces, [{ nombre: 'Charon', genero: 'hombre' }, { nombre: 'Kore', genero: 'mujer' }]);
+  // El catálogo Gemini viaja en la misma respuesta: las 30 fijas, con género.
+  assert.equal(lista.valor.vocesGemini.length, 30);
+  assert.ok(lista.valor.vocesGemini.every(v => v.genero === 'hombre' || v.genero === 'mujer'));
+  assert.equal(new Set(lista.valor.vocesGemini.map(v => v.nombre)).size, 30, 'sin nombres repetidos');
   // Chirp devuelve LINEAR16 ya con cabecera WAV.
   const wav3 = pcmAWav(Buffer.alloc(24000 * 2 * 3)).toString('base64');
   ({ vistas } = mundoGoogle(() => new Response(JSON.stringify({ audioContent: wav3 }))));
@@ -834,6 +888,28 @@ test('voz: las voces se piden a Google (con su género) y cada tramo es una sola
   const sinVoz = respuesta();
   await voz(pedirA('/api/voz', { proyecto: 'pimagen0001', clave: 'voz-e1-1', lineas: ['x'] }), sinVoz);
   assert.equal(sinVoz.statusCode, 400);
+});
+
+test('voz Gemini: con motor gemini el tramo va a Vertex con la voz pedida y el WAV se guarda igual', async () => {
+  conCuentaDeServicio();
+  process.env.GCS_OUTPUT_BUCKET = 'bucket-prueba';
+  const voz = require('../api/voz');
+  const wav3 = pcmAWav(Buffer.alloc(24000 * 2 * 3)).toString('base64');
+  const { vistas } = mundoGoogle(url => url.includes('gemini-3.8-flash-tts:generateContent')
+    ? new Response(JSON.stringify({ candidates: [{ content: { parts: [{ inlineData: { data: wav3, mimeType: 'audio/L16;rate=24000' } }] } }] }))
+    : new Response('{}', { status: 500 }));
+  const salida = respuesta();
+  await voz(pedirA('/api/voz', { proyecto: 'pimagen0001', clave: 'voz-e1-g', voz: 'Kore', motor: 'gemini', lineas: ['Hola.'] }), salida);
+  assert.equal(salida.statusCode, 200, JSON.stringify(salida.valor));
+  assert.equal(salida.valor.ruta, base + 'voz-e1-g.wav');
+  assert.equal(salida.valor.segundos, 3);
+  const cuerpo = vistas[0].cuerpo;
+  assert.equal(cuerpo.generationConfig.speechConfig.voiceConfig.prebuiltVoiceConfig.voiceName, 'Kore');
+  assert.deepEqual(cuerpo.generationConfig.responseModalities, ['AUDIO']);
+  // Una voz que no es de la lista Gemini se rechaza antes de llamar a Google.
+  const mala = respuesta();
+  await voz(pedirA('/api/voz', { proyecto: 'pimagen0001', clave: 'voz-e1-g', voz: 'NoExiste', motor: 'gemini', lineas: ['Hola.'] }), mala);
+  assert.equal(mala.statusCode, 400);
 });
 
 test('música: Lyria 3 Pro como en el estudio de anime (interactions, pieza larga, MP3); un brief en español se rechaza antes de pagar', async () => {
