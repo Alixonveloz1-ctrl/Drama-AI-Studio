@@ -74,6 +74,8 @@ test('solo los identificadores de modelo de la especificación', () => {
     'veo-3.1-lite-generate-001', 'veo-3.1-fast-generate-001', 'veo-3.1-generate-001',
     // Imagen 2.1 y video Omni: opciones nuevas de los selectores (decisión del dueño, 2026-11-12).
     'gemini-nano-banana-2.1', 'gemini-omni-1.2-flash', 'gemini-omni-1.2-flash-360p', 'gemini-omni-1.2-flash-720p',
+    // Voz Gemini 3.8: motor elegible de los diálogos (decisión del dueño, 2026-11-12).
+    'gemini-3.8-flash-tts',
     // Música: Lyria 3 Pro, la de la parte de cortos del estudio de anime (decisión del dueño).
     'lyria-3-pro-preview']);
   for (const ruta of [...de('.js', '.mjs', '.cjs', '.html', '.py')]) {
