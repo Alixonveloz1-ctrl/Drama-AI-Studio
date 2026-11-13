@@ -15,7 +15,7 @@
 //  · El modelo elegido nunca se cambia por otro. Un bloqueo no se reintenta.
 // ════════════════════════════════════════════════════════════════
 const puerta = require('./_lib/puerta');
-const { cfg, urlVertex, MODELOS_VIDEO } = require('./_lib/google');
+const { cfg, urlVertex, MODELOS_VIDEO, omniDe, urlInteracciones } = require('./_lib/google');
 const { ErrorEstudio, errorDeGoogle } = require('./_lib/errores');
 const medios = require('./_lib/medios');
 const { limpiarPrompt } = require('./_lib/saneado');
@@ -35,6 +35,52 @@ module.exports = puerta({ metodos: ['POST'] }, async (req, { google }) => {
 
   const { proyecto, token } = await google();
   const { bytes, tipo } = await medios.leer(token, rutaImagen, 'la imagen del plano');
+
+  // ─── Omni (Gemini Omni 1.2 Flash) ───
+  // No es un Veo: va por la API de Interacciones, en segundo plano
+  // (background), y /api/video-estado recoge el clip preguntando por la
+  // interacción. Omni no tiene prompt negativo aparte: las prohibiciones
+  // viajan dentro del texto como una línea «Avoid:». La duración es la
+  // misma de los planos de Veo (4 s), para que el dueño compare motores
+  // con la misma toma y el mismo largo.
+  const omni = omniDe(modelo);
+  if (omni) {
+    const negativo = typeof b.negativo === 'string' && b.negativo.trim() ? `\nAvoid: ${b.negativo.trim().slice(0, 1500)}` : '';
+    const cuerpoOmni = {
+      model: omni.modelo,
+      input: [
+        { type: 'image', data: bytes.toString('base64'), mime_type: /jpe?g/i.test(tipo) ? 'image/jpeg' : 'image/png' },
+        { type: 'text', text: limpiarPrompt(b.prompt) + negativo },
+      ],
+      response_format: {
+        type: 'video',
+        resolution: omni.resolucion,
+        aspect_ratio: b.formato === '16:9' ? '16:9' : '9:16',
+        duration: `${SEGUNDOS}s`,
+      },
+      generation_config: { video_config: { task: 'image_to_video' } },
+      background: true,
+      store: true,
+    };
+    let rO;
+    try {
+      rO = await fetch(urlInteracciones(proyecto), {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'X-Goog-User-Project': proyecto },
+        body: JSON.stringify(cuerpoOmni),
+        signal: AbortSignal.timeout(40000),
+      });
+    } catch (e) {
+      throw new ErrorEstudio('No hubo conexión con Google para arrancar el video: ' + e.message, { estado: 502, tipo: 'google' });
+    }
+    const crudoO = await rO.text();
+    let dO;
+    try { dO = JSON.parse(crudoO); } catch { dO = { error: { message: crudoO.slice(0, 300) || `HTTP ${rO.status}` } }; }
+    if (!rO.ok) throw errorDeGoogle(`video (${modelo})`, rO.status, dO);
+    const nombre = dO.name || (dO.id ? `projects/${proyecto}/locations/global/interactions/${dO.id}` : '');
+    if (!nombre) throw new ErrorEstudio('Omni aceptó la petición pero no devolvió el número de la interacción.', { estado: 502, tipo: 'google' });
+    return { operacion: nombre, modelo, segundos: SEGUNDOS };
+  }
 
   const cuerpo = {
     instances: [{
