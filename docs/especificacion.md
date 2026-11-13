@@ -191,7 +191,7 @@ no inventar ninguno.**
 | Uso | Modelo | Notas |
 |---|---|---|
 | Texto | `gemini-3.1-pro-preview` | Región `global` obligatoria |
-| Imagen (por defecto) | `gemini-3.1-flash-image` | Nano Banana 2, el económico |
+| Imagen (por defecto) | `gemini-nano-banana-2.1` | Nano Banana 2.1, el más económico |
 | Imagen (calidad) | `gemini-3-pro-image` | Nano Banana Pro, a mano cuando haga falta |
 | Imagen (nuevo, a mano) | `gemini-nano-banana-2.1` | Nano Banana 2.1, para las pruebas del dueño (2026-11-12) |
 | Video (por defecto) | `veo-3.1-lite-generate-001` | El económico |
@@ -657,10 +657,14 @@ constantemente y es la razón por la que no se notan los fallos:
 
 ## 12. Imágenes
 
-- Modelo por defecto `gemini-3.1-flash-image`; `gemini-3-pro-image` disponible en
-  el selector, de último, para elegirlo a mano. `gemini-nano-banana-2.1` también
-  está en el selector (decisión del dueño, 2026-11-12) para probarlo a mano; el
-  predeterminado no cambia.
+- Modelo por defecto `gemini-nano-banana-2.1` (decisión del dueño,
+  2026-11-12: sustituye al Flash como predeterminado). Vale para los dos
+  selectores (Personajes y Escenas, separados como siempre) y para todos
+  los proyectos: al cerrar y reabrir la app se entra con el 2.1 puesto,
+  porque la elección a mano vive solo en la sesión y el ajuste guardado
+  no manda — ningún modelo caro puede quedar pegado de una sesión a
+  otra. `gemini-3.1-flash-image` y `gemini-3-pro-image` siguen en el
+  selector para elegirlos a mano dentro de la sesión.
 - Una imagen por plano, en el formato del proyecto (9:16 o 16:9).
 - Conmutación de región ante 429: `us-central1` → `europe-west4` → `us-east4`.
 - Las referencias que acompañan al prompt son: la ficha del personaje (con su
