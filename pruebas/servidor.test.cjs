@@ -221,7 +221,7 @@ test('la puerta no pide credenciales de Google antes de comprobar al propietario
 
 // ─── Configuración ───
 test('modelos y variables: los de la especificación, sin sustitutos', () => {
-  assert.deepEqual(google.MODELOS_IMAGEN, ['gemini-3.1-flash-image', 'gemini-3-pro-image', 'gemini-nano-banana-2.1']);
+  assert.deepEqual(google.MODELOS_IMAGEN, ['gemini-nano-banana-2.1', 'gemini-3.1-flash-image', 'gemini-3-pro-image']);
   assert.deepEqual(google.MODELOS_VIDEO, ['veo-3.1-lite-generate-001', 'veo-3.1-fast-generate-001', 'veo-3.1-generate-001', 'gemini-omni-1.2-flash-360p', 'gemini-omni-1.2-flash-720p']);
   // El 2.1 se sirve en «global», como los demás Gemini de imagen.
   assert.equal(google.ubicacionImagen('gemini-nano-banana-2.1'), 'global');
@@ -233,7 +233,7 @@ test('modelos y variables: los de la especificación, sin sustitutos', () => {
   const c = google.cfg;
   assert.equal(c.modeloTexto, 'gemini-3.1-pro-preview');
   assert.equal(c.ubicacionTexto, 'global');
-  assert.equal(c.modeloImagen, 'gemini-3.1-flash-image');
+  assert.equal(c.modeloImagen, 'gemini-nano-banana-2.1');
   assert.deepEqual(c.regionesImagen, ['us-central1', 'europe-west4', 'us-east4']);
   assert.equal(c.modeloVideo, 'veo-3.1-lite-generate-001');
   assert.equal(c.idiomaVoz, 'es-US');
@@ -530,7 +530,7 @@ test('imagen: contrato de estilo primero, ficha con su contrato, endpoint global
   assert.match(salida.valor.url, /X-Goog-Signature=/);
   assert.ok(guardados[base + 'plano-e1-1.png'], 'se guardó en el bucket desde el servidor');
   const { url, cuerpo } = llamadasVertex[0];
-  assert.match(url, /\/locations\/global\/publishers\/google\/models\/gemini-3\.1-flash-image:generateContent$/);
+  assert.match(url, /\/locations\/global\/publishers\/google\/models\/gemini-nano-banana-2\.1:generateContent$/);
   const partes = cuerpo.contents[0].parts;
   assert.match(partes[0].text, /^RENDERING \(non-negotiable.*a LIVE-ACTION PHOTOGRAPH/);
   assert.match(partes[0].text, /STRICTLY FORBIDDEN: any drawn or painted look — illustration, digital painting/);
