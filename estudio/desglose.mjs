@@ -51,6 +51,176 @@ const PLANOS_POR_LLAMADA = 16;  // y planos mínimos sumados: la respuesta tiene
 const REVISAR_CADA = 5;         // el director de arte revisa cada 5 escenas
 const INTENTOS = 3;
 
+// ─── Memoria de equipo (continuidad de objetos entre escenas) ───
+// Los lugares tienen inventario cerrado, pero nadie llevaba la cuenta de
+// lo que cada PERSONAJE trae encima a lo largo de la historia: una lanza
+// ganada en una escena no existía para el director de una escena posterior,
+// que la reinventaba (fallo real visto por el dueño en «La Balsa», escena
+// 14: el diálogo decía «arpón», Leo ya tenía una lanza metálica dada por
+// el Sistema y la foto salió con un palo de madera, con una nota del
+// revisor que justificaba el invento). Esta memoria se construye leyendo
+// el guion EN ORDEN —solo texto, lo barato— y viaja con cada llamada de
+// desglose, de corrección de campos y de revisión.
+export const SISTEMA_EQUIPO = `Eres el encargado de la CONTINUIDAD DE EQUIPO de un drama corto. Lees el guion EN ORDEN y llevas la lista de los objetos importantes que cada personaje TRAE ENCIMA: qué gana, qué pierde y qué se transforma, escena por escena.
+- Solo objetos que el personaje lleva consigo o usa con las manos y que pueden volver a aparecer: un arma, una herramienta, una llave, un objeto clave de la historia. NO ropa (va en la ficha del personaje), NO muebles ni cosas del lugar (eso es el inventario del escenario), NO lo que se consume en el momento (una comida que se come), salvo que el texto lo mantenga en su poder.
+- "descripcion" (EN INGLÉS): cómo debe dibujarse ese objeto SIEMPRE — material, forma, tamaño y color, en una frase completa y concreta. Esa frase se copiará palabra por palabra en los prompts de imagen: escríbela una sola vez y bien. Si el objeto ya está en la lista que te doy, NO lo registres otra vez ni cambies su descripción.
+- "lleva": el personaje ya trae el objeto desde el principio (su ficha o la primera escena lo muestran como suyo). "gana": el texto de la escena se lo entrega, lo fabrica, lo encuentra o el Sistema se lo da. "pierde": lo pierde, se lo quitan, se rompe o lo deja atrás para siempre. "reemplaza": un objeto nuevo sustituye a uno que ya traía (una mejora, un intercambio): nombra el sustituido en "reemplazaA" y describe el nuevo; el viejo deja de existir.
+Respondes SOLO JSON válido.`;
+
+export function promptEquipo(datos, escenas, objetos) {
+  const u = datos.universo;
+  const nombres = Object.fromEntries(u.personajes.map(p => [p.id, p.nombre]));
+  const lista = escenas.map(e => {
+    const lineas = e.lineas.map(l => `${l.tipo === 'sistema' ? 'SISTEMA' : (nombres[l.personaje] || l.nombre || l.personaje)}${l.tipo === 'pensamiento' ? ' (piensa)' : ''}: ${l.texto}`).join('\n');
+    return `═══ ESCENA ${e.id} — «${e.titulo}»\nLo que se ve al empezar: ${e.accion}\n${lineas}`;
+  }).join('\n\n');
+  const actual = formatearEquipo(u, objetos) || 'Nadie trae nada registrado todavía.';
+  return {
+    sistema: SISTEMA_EQUIPO,
+    mensaje: `PERSONAJES:\n${u.personajes.map(p => `- ${p.id} = ${p.nombre}: ${p.appearance}`).join('\n')}
+
+EQUIPO REGISTRADO HASTA AHORA (lo que cada personaje ya trae al empezar estas escenas):
+${actual}
+
+ESCENAS NUEVAS, en orden:
+${lista}
+
+Devuelve SOLO los cambios que ocurren en ESTAS escenas, en el orden en que ocurren: {"cambios":[{"escena":"${escenas[0].id}","personaje":"c1","accion":"lleva | gana | pierde | reemplaza","objeto":"nombre corto del objeto","descripcion":"exact English visual description (solo en lleva, gana y reemplaza)","reemplazaA":"nombre del objeto sustituido (solo en reemplaza)"}]}
+Si en una escena nadie gana, pierde ni reemplaza nada, de esa escena no devuelvas nada.`,
+    temperatura: 0.3,
+  };
+}
+
+function formatearEquipo(u, objetos, orden = null, hastaIdx = Infinity) {
+  const lineas = [];
+  for (const p of u.personajes) {
+    for (const o of objetos?.[p.id] || []) {
+      if (orden && (orden.get(o.desde) ?? Infinity) > hastaIdx) continue;
+      lineas.push(`- ${p.nombre} (${p.id}) trae «${o.objeto}»: "${o.descripcion}" (desde la escena ${o.desde})`);
+    }
+  }
+  return lineas.join('\n');
+}
+
+// El episodio que contiene una escena, con el orden de sus escenas.
+export function episodioDeEscena(datos, idEscena) {
+  for (const [numero, ep] of Object.entries(datos.episodios || {})) {
+    const lista = (ep?.bloques || []).flatMap(b => b.escenas || []);
+    const idx = lista.findIndex(e => e.id === idEscena);
+    if (idx >= 0) return { numero, ep, orden: new Map(lista.map((e, i) => [e.id, i])) };
+  }
+  return null;
+}
+
+// El bloque de equipo que acompaña a las llamadas del desglose, de la
+// corrección y de la revisión: solo los objetos que el personaje ya trae
+// cuando empieza la ÚLTIMA escena del lote (cada uno dice desde cuándo).
+export function bloqueEquipo(datos, escenas) {
+  if (!escenas?.length) return '';
+  const hallado = episodioDeEscena(datos, escenas[0].id);
+  if (!hallado?.ep?.equipo?.objetos) return '';
+  const hastaIdx = hallado.orden.get(escenas[escenas.length - 1].id) ?? Infinity;
+  const lista = formatearEquipo(datos.universo, hallado.ep.equipo.objetos, hallado.orden, hastaIdx);
+  if (!lista) return '';
+  return `\n\nEQUIPO QUE CADA PERSONAJE YA TRAE (memoria de la historia: lo que ganó o lleva desde antes, con su descripción EXACTA en inglés y desde qué escena lo trae):\n${lista}`;
+}
+
+// Huella del guion de un episodio: si el texto cambia, la memoria de
+// equipo se reconstruye (solo texto; lo caro son las imágenes).
+export function huellaGuion(escenas) {
+  const texto = escenas.map(e => `${e.id}|${e.accion}|${textoEscena(e)}`).join('\n');
+  let h = 0;
+  for (let i = 0; i < texto.length; i++) h = (Math.imul(h, 31) + texto.charCodeAt(i)) | 0;
+  return `${escenas.length}:${texto.length}:${(h >>> 0).toString(36)}`;
+}
+
+// Aplica los cambios de equipo de una lectura del guion sobre la lista.
+// La descripción de un objeto, una vez registrada, NO cambia: solo un
+// «reemplaza» expreso la sustituye (una mejora del Sistema, un cambio).
+export function aplicarCambiosEquipo(objetos, cambios, orden, universo) {
+  const ids = new Set(universo.personajes.map(p => p.id));
+  const madre = id => (universo.variantes || []).find(v => v.id === id)?.madre || id;
+  const clave = s => normalizar(s).replace(/^(la|el|los|las|su|un|una|the|a|an)\s+/, '').trim();
+  const lista = (Array.isArray(cambios) ? [...cambios] : [])
+    .filter(c => c && orden.has(String(c?.escena || '')) && ids.has(madre(String(c?.personaje || ''))))
+    .sort((a, b) => orden.get(String(a.escena)) - orden.get(String(b.escena)));
+  for (const c of lista) {
+    const pid = madre(String(c.personaje));
+    const accion = normalizar(c.accion);
+    const objeto = String(c.objeto || '').replace(/\s+/g, ' ').trim();
+    if (!objeto) continue;
+    const actual = objetos[pid] ||= [];
+    const quitar = nombre => {
+      const j = actual.findIndex(o => clave(o.objeto) === clave(nombre));
+      if (j >= 0) actual.splice(j, 1);
+    };
+    if (accion === 'pierde') { quitar(objeto); continue; }
+    if (!['lleva', 'gana', 'reemplaza'].includes(accion)) continue;
+    const descripcion = String(c.descripcion || '').replace(/\s+/g, ' ').trim();
+    if (descripcion.length < 20) continue;
+    if (accion === 'reemplaza') quitar(String(c.reemplazaA || ''));
+    if (actual.some(o => clave(o.objeto) === clave(objeto))) {
+      if (accion !== 'reemplaza') continue;   // ya registrado: su descripción manda
+      quitar(objeto);
+    }
+    actual.push({ objeto, descripcion, desde: String(c.escena) });
+  }
+  return objetos;
+}
+
+// Construye (o reconstruye, si el guion cambió) la memoria de equipo del
+// episodio leyendo su guion en orden. Como asegurarLugares: se llama
+// antes de desglosar y el resultado queda guardado en el episodio.
+export async function asegurarEquipo(datos, numero, { control, aviso, guardar } = {}) {
+  const ep = datos.episodios?.[numero];
+  if (!ep) return null;
+  const escenas = escenasDelEpisodio(datos, numero);
+  if (!escenas.length) return null;
+  const huella = huellaGuion(escenas);
+  if (ep.equipo?.huella === huella && ep.equipo?.objetos) return ep.equipo;
+  aviso?.('Armo la memoria de equipo: leo el guion en orden y anoto lo que cada personaje trae encima…');
+  const orden = new Map(escenas.map((e, i) => [e.id, i]));
+  const objetos = {};
+  let parcial = false;
+  const LOTE = 8;
+  for (let i = 0; i < escenas.length; i += LOTE) {
+    const lote = escenas.slice(i, i + LOTE);
+    let cambios = null;
+    for (let intento = 0; intento < 2 && !cambios; intento++) {
+      try {
+        const json = parsearJSON(await pedirTexto(promptEquipo(datos, lote, objetos), { control, aviso }));
+        if (Array.isArray(json?.cambios)) cambios = json.cambios;
+      } catch (e) { if (e?.detenido) throw e; }
+    }
+    if (!cambios) { parcial = true; continue; }
+    aplicarCambiosEquipo(objetos, cambios, orden, datos.universo);
+  }
+  ep.equipo = { huella, objetos };
+  if (parcial) aviso?.('La memoria de equipo quedó parcial: una parte del guion no se pudo leer; lo anotado sí viaja con el desglose.');
+  await guardar?.();
+  return ep.equipo;
+}
+
+// Al rehacer el desglose de una escena, el plano que conserva su ancla
+// hereda la imagen (y el video) que ya se pagaron: rehacer no puede
+// descolgarlos. Si el prompt nuevo difiere del viejo, la imagen heredada
+// queda marcada obsoleta, como hace la revisión del director de arte.
+export function heredarMedios(viejos = [], nuevos = []) {
+  let heredados = 0;
+  (nuevos || []).forEach((p, i) => {
+    const v = (viejos || [])[i];
+    if (!v?.imagen || normalizar(v.ancla) !== normalizar(p.ancla)) return;
+    p.imagen = v.imagen;
+    if (v.video) p.video = v.video;
+    if (normalizar(v.prompt) !== normalizar(p.prompt)) {
+      p.imagenObsoleta = true;
+      if (p.video) p.videoObsoleto = true;
+    }
+    heredados++;
+  });
+  return heredados;
+}
+
 export function textoEscena(e) {
   return e.lineas.map(l => l.texto).join(' ');
 }
@@ -148,6 +318,12 @@ PUESTA EN ESCENA Y CONTINUIDAD (lo más importante; un fallo aquí tira imágene
 
 FICHA DEL LUGAR (inventario cerrado): cada lugar tiene su ficha con todo lo que existe en él y dónde está. Esa ficha completa acompaña a cada imagen por su cuenta: en el prompt NO la copies; di desde dónde mira la cámara y qué parte del lugar se ve («facing the sea, the black rocks on the right, the palm grove behind her»), siempre de acuerdo con la ficha. No inventes elementos que la ficha no tiene ni muevas los que tiene. Si la historia cambia el lugar (encienden una hoguera, levantan un refugio), ese cambio va en "estado" y se mantiene en los planos siguientes. En un interior, la lluvia o la nieve solo se ven por la ventana o la puerta, nunca dentro.
 
+EQUIPO DE LOS PERSONAJES (memoria de la historia): cada personaje trae objetos que ganó o que lleva desde antes; el mensaje los lista con su descripción en inglés EXACTA y desde qué escena los trae.
+- Cuando un plano muestra a un personaje con uno de esos objetos (en la mano, colgado del cinturón, usándolo), copia su descripción EXACTA, palabra por palabra, en "prompt" y en "estado": es el MISMO objeto en toda la serie, nunca una versión nueva por escena.
+- El texto puede nombrar ese objeto con una palabra suelta distinta (el diálogo dice «arpón» y lo que el personaje trae es su lanza): esa palabra NO crea un objeto nuevo; se filma el objeto que ya trae, con su descripción exacta.
+- PROHIBIDO inventar armas, herramientas u objetos importantes que no estén en el equipo del personaje, ni en el inventario del lugar, ni los entregue el texto de ESTA escena. Nada de versiones improvisadas de lo que el personaje ya tiene en su forma establecida.
+- Si el texto de ESTA escena entrega algo nuevo a un personaje, descríbelo completo la primera vez que aparece y mantenlo idéntico en los planos siguientes de la escena.
+
 LITERALIDAD: una figura sobre un sentimiento («le hervía la sangre») se filma como gesto o postura, nunca como efecto especial.
 
 CADA "prompt" (EN INGLÉS):
@@ -166,7 +342,7 @@ export function promptDesglose(datos, escenas, extra = '') {
     sistema: SISTEMA_FOTOGRAFIA,
     mensaje: `${contextoEleccion(datos.formulario)}
 
-${fichaVisual(u)}
+${fichaVisual(u)}${bloqueEquipo(datos, escenas)}
 
 DIRECCIÓN VISUAL DE LA SERIE: ${datos.biblia?.direccionVisual || ''}
 ASPECTO DEL GÉNERO Y DE CADA SUBGÉNERO (obligatorio en los prompts; todos a la vez): ${direccionDeAspecto(datos.formulario)}
@@ -328,6 +504,9 @@ export function validarDesglose(json, escenas, universo) {
 export const SISTEMA_ARTE = `Eres el DIRECTOR DE ARTE y de continuidad. Lees prompts de imagen YA ESCRITOS y los contrastas con su escenario y con el texto de la escena, para cazar fallos antes de que cuesten imágenes: atrezo imposible (un mueble que ese lugar no tiene), clima imposible (lluvia dentro de un interior), un personaje en un sitio en el que no puede estar, ropa o heridas que cambian sin motivo, alguien mirando a cámara.
 CONTINUIDAD DE PLANO A PLANO (lo que más se rompe): alguien que desaparece sin haber salido o aparece sin haber entrado; alguien que cambia de sitio sin que el texto lo mueva (estaba en la mesa y salta a la cama); un objeto que se esfuma (un cuenco roto que ya no está en el suelo); un plano que repite la postura del anterior cuando su ancla dice que ocurre una acción (cae, se levanta, empuja); dos personas que tienen que tocarse y no están a su alcance.
 No cambias la historia ni el encuadre que funciona. Solo corriges lo que está mal, y explicas por qué.
+
+EQUIPO DE LOS PERSONAJES: el mensaje trae la memoria de equipo — lo que cada personaje ya trae, con su descripción EXACTA y desde qué escena lo trae. Un prompt que dibuja uno de esos objetos como otra cosa (otra forma, otro material, una versión improvisada de palo) ES UN FALLO: corrígelo copiando la descripción exacta del objeto en el prompt (y en el estado, si ahí también sale cambiado). La palabra suelta del diálogo («arpón») nunca manda sobre el objeto establecido.
+Y si un plano necesita un objeto que no está NI en el equipo del personaje NI en el inventario del lugar NI lo entrega el texto de la escena, NO lo corrijas inventándolo y NO lo des por bueno con una explicación: añádelo a tu JSON en un array "avisos", junto a "correcciones", con la misma forma ({"escena","plano","motivo"}), diciendo qué objeto falta y por qué no se puede resolver sin el dueño. Un aviso no lleva prompt ni estado: el dueño decide.
 Respondes SOLO JSON válido.`;
 
 export function promptRevision(datos, escenas) {
@@ -336,7 +515,7 @@ export function promptRevision(datos, escenas) {
   const lista = escenas.map(e => `═══ ESCENA ${e.id} — escenario ${e.escenario} — presentes al empezar: ${nombres(e.presentes)}\nLo que se ve al empezar: ${e.accion}\nTexto: ${textoEscena(e)}\n${(e.planos || []).map((p, i) => `Plano ${i + 1} (${p.tipo}, ${NOMBRE_ENCUADRE[p.encuadre] || 'sin encuadre'}) ancla «${p.ancla}» · se ve: ${nombres(p.personajes)}${p.entran?.length ? ' · entran: ' + nombres(p.entran) : ''}${p.salen?.length ? ' · salen: ' + nombres(p.salen) : ''}\n  Estado: ${p.estado || '—'}\n  Cambio: ${p.cambio || '—'}\n  Prompt: ${p.prompt}`).join('\n')}`).join('\n\n');
   return {
     sistema: SISTEMA_ARTE,
-    mensaje: `${fichaVisual(u)}
+    mensaje: `${fichaVisual(u)}${bloqueEquipo(datos, escenas)}
 
 ${lista}
 
@@ -373,6 +552,8 @@ export function fallosDeCampo(problemas) {
 }
 
 export const SISTEMA_CORRECTOR = `Eres el CORRECTOR DE CONTINUIDAD de un drama corto asiático. Te doy un desglose de planos YA HECHO y SOLO los planos que el revisor automático señaló, cada uno con el motivo exacto del señalamiento. Tu trabajo es reescribir ÚNICAMENTE los campos señalados de esos planos, completos y en inglés, respetando el texto de la escena, la posición de cada persona en ese instante y la continuidad con el plano anterior. No tocas ningún otro plano, no cambias la historia y no acortas nada: el campo corregido lleva TODO el detalle que debía llevar.
+
+Si el campo que corriges nombra un objeto del equipo de un personaje (el mensaje trae la memoria de equipo, con la descripción exacta de cada objeto), copia esa descripción EXACTA, palabra por palabra: jamás sustituyas un objeto establecido por una versión inventada o improvisada.
 Respondes SOLO JSON válido.`;
 
 export function promptCorreccion(datos, escenas, candidato, fallos) {
@@ -405,7 +586,7 @@ ${detalle}`;
     sistema: SISTEMA_CORRECTOR,
     mensaje: `CORRECCIÓN DIRIGIDA de campos sueltos de un desglose ya hecho. No reescribas el desglose: corrige SOLO lo señalado.
 
-${fichaVisual(u)}
+${fichaVisual(u)}${bloqueEquipo(datos, escenas)}
 
 ${bloques}
 
@@ -566,9 +747,10 @@ export function agrupar(escenas) {
 export async function desglosar(datos, numero, { control, aviso, guardar, soloEscena, rehacerTodo, alAvanzar }) {
   // Proyectos antiguos: el director detalla los lugares antes de desglosar.
   await asegurarLugares(datos, { control, aviso, guardar });
+  await asegurarEquipo(datos, numero, { control, aviso, guardar });
   const todas = escenasDelEpisodio(datos, numero);
   const pendientes = soloEscena ? todas.filter(e => e.id === soloEscena) : rehacerTodo ? todas : todas.filter(e => !e.planos?.length);
-  const informe = { revisadas: 0, correcciones: 0, sinRevisar: [] };
+  const informe = { revisadas: 0, correcciones: 0, avisos: 0, sinRevisar: [] };
   const grupos = agrupar(pendientes);
   let hechas = 0, porRevisar = [];
   const revisarLo = async () => {
@@ -576,7 +758,7 @@ export async function desglosar(datos, numero, { control, aviso, guardar, soloEs
     porRevisar = [];
     try {
       const r = await revisar(datos, lote, { control, aviso, guardar });
-      informe.revisadas += r.revisadas; informe.correcciones += r.correcciones; informe.sinRevisar.push(...r.sinRevisar);
+      informe.revisadas += r.revisadas; informe.correcciones += r.correcciones; informe.avisos += r.avisos || 0; informe.sinRevisar.push(...r.sinRevisar);
     } catch (e) {
       if (e.detenido) throw e;
       informe.sinRevisar.push(...lote.map(g => g.id));
@@ -611,8 +793,13 @@ export async function desglosar(datos, numero, { control, aviso, guardar, soloEs
     for (const escena of grupo) {
       // Un desglose nuevo sustituye al anterior; sus imágenes se conservan
       // aparte por si se quieren recuperar.
-      if (escena.planos?.length) escena.planosAnteriores = escena.planos;
+      const viejos = escena.planos?.length ? escena.planos : null;
+      if (viejos) escena.planosAnteriores = viejos;
       escena.planos = resultado[escena.id].map((p, n) => ({ ...p, id: `${escena.id}-${n + 1}` }));
+      // Rehacer un desglose no puede descolgar los medios ya pagados: el
+      // plano que conserva su ancla hereda su imagen (y su video); si el
+      // prompt cambió, la heredada queda obsoleta, como en la revisión.
+      if (viejos) heredarMedios(viejos, escena.planos);
       escena.presentes = presentes[escena.id] || [];
     }
     hechas += grupo.length;
@@ -631,12 +818,14 @@ export async function desglosar(datos, numero, { control, aviso, guardar, soloEs
   return informe;
 }
 
-// El director de arte. Devuelve qué revisó de verdad.
-export async function revisar(datos, escenas, { control, aviso, guardar }) {
-  aviso?.('El director de arte revisa la puesta en escena…');
-  const json = parsearJSON(await pedirTexto(promptRevision(datos, escenas), { control, aviso }));
+// Aplica sobre los planos lo que el director de arte devolvió: las
+// correcciones reescriben el campo señalado y marcan la imagen obsoleta
+// sin borrar nada; los «avisos» no tocan nada — dejan la nota visible en
+// la tarjeta para que el dueño decida (un objeto que no existe en
+// ninguna ficha no se rellena con un invento ni se excusa con una nota).
+export function aplicarRevision(escenas, json) {
   const revisadas = new Set((Array.isArray(json?.revisadas) ? json.revisadas : []).map(String));
-  let correcciones = 0;
+  let correcciones = 0, avisos = 0;
   for (const c of Array.isArray(json?.correcciones) ? json.correcciones : []) {
     const escena = escenas.find(e => e.id === String(c?.escena));
     const plano = escena?.planos?.[Number(c?.plano) - 1];
@@ -659,7 +848,23 @@ export async function revisar(datos, escenas, { control, aviso, guardar }) {
     if (plano.video) plano.videoObsoleto = true;
     correcciones++;
   }
+  for (const c of Array.isArray(json?.avisos) ? json.avisos : []) {
+    const escena = escenas.find(e => e.id === String(c?.escena));
+    const plano = escena?.planos?.[Number(c?.plano) - 1];
+    const motivo = String(c?.motivo || '').trim();
+    if (!plano || !motivo) continue;
+    plano.revision = /^aviso\b/i.test(motivo) ? motivo : `AVISO: ${motivo}`;
+    avisos++;
+  }
+  return { correcciones, avisos, revisadas };
+}
+
+// El director de arte. Devuelve qué revisó de verdad.
+export async function revisar(datos, escenas, { control, aviso, guardar }) {
+  aviso?.('El director de arte revisa la puesta en escena…');
+  const json = parsearJSON(await pedirTexto(promptRevision(datos, escenas), { control, aviso }));
+  const { correcciones, avisos, revisadas } = aplicarRevision(escenas, json);
   for (const e of escenas) if (revisadas.has(e.id)) e.revisada = Date.now();
   await guardar?.();
-  return { revisadas: escenas.filter(e => revisadas.has(e.id)).length, correcciones, sinRevisar: escenas.filter(e => !revisadas.has(e.id)).map(e => e.id) };
+  return { revisadas: escenas.filter(e => revisadas.has(e.id)).length, correcciones, avisos, sinRevisar: escenas.filter(e => !revisadas.has(e.id)).map(e => e.id) };
 }
