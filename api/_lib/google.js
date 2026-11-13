@@ -30,14 +30,31 @@ const leer = (nombre, porDefecto) => {
 // El primero de cada lista es el predeterminado. El modelo elegido es el que
 // se usa: si falla, se devuelve el error de Google tal cual y NUNCA se cambia
 // por otro a espaldas del dueño.
-const MODELOS_IMAGEN = ['gemini-3.1-flash-image', 'gemini-3-pro-image'];
-const MODELOS_VIDEO = ['veo-3.1-lite-generate-001', 'veo-3.1-fast-generate-001', 'veo-3.1-generate-001'];
+const MODELOS_IMAGEN = ['gemini-3.1-flash-image', 'gemini-3-pro-image', 'gemini-nano-banana-2.1'];
+const MODELOS_VIDEO = ['veo-3.1-lite-generate-001', 'veo-3.1-fast-generate-001', 'veo-3.1-generate-001', 'gemini-omni-1.2-flash-360p', 'gemini-omni-1.2-flash-720p'];
+
+// Gemini Omni 1.2 Flash NO es un Veo: no va por predictLongRunning sino por
+// la API de Interacciones (global), y la resolución viaja dentro del valor
+// del selector (el ajuste guardado es una sola cadena). omniDe traduce el
+// valor elegido a { modelo, resolucion }; null = es un Veo normal.
+const MODELO_OMNI = 'gemini-omni-1.2-flash';
+function omniDe(valor) {
+  const v = String(valor || '');
+  if (!v.startsWith(MODELO_OMNI + '-')) return null;
+  const resolucion = v.slice(MODELO_OMNI.length + 1);
+  return resolucion === '360p' || resolucion === '720p' ? { modelo: MODELO_OMNI, resolucion } : null;
+}
+// Endpoint de la API de Interacciones (v1beta1, solo «global»).
+function urlInteracciones(proyecto) {
+  return `https://aiplatform.googleapis.com/v1beta1/projects/${proyecto}/locations/global/interactions`;
+}
 
 // Los modelos Gemini 3.x solo se sirven desde el endpoint "global". Pedirlos
 // a una región concreta devuelve un 404 que parece falta de acceso y no lo es.
 const UBICACION_IMAGEN_BASE = {
   'gemini-3.1-flash-image': 'global',
   'gemini-3-pro-image': 'global',
+  'gemini-nano-banana-2.1': 'global',
 };
 // Lyria 3 Pro se sirve en global (como en la parte de cortos del estudio de anime).
 const UBICACION_MUSICA_BASE = {
@@ -227,6 +244,6 @@ function ocultarCorreo(correo) {
 
 module.exports = {
   cfg, describirAjustes, ubicacionImagen, ubicacionesImagen,
-  MODELOS_IMAGEN, MODELOS_VIDEO, CORS_BUCKET,
+  MODELOS_IMAGEN, MODELOS_VIDEO, CORS_BUCKET, omniDe, urlInteracciones, MODELO_OMNI,
   ErrorConfiguracion, cargarCuentaServicio, tokenDeAcceso, credenciales, urlVertex, ocultarCorreo, firmarUrl,
 };
