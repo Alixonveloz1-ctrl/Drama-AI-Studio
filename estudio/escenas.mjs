@@ -167,6 +167,9 @@ function pintarAhora() {
   ${escenas.map((e, n) => {
     const lugar = u.escenarios.find(x => x.id === e.escenario)?.nombre || '';
     const seg = Math.round(segundosDe(contarPalabras(textoEscena(e))));
+    const totalPlanos = (e.planos || []).length;
+    const conImagen = (e.planos || []).filter(p => p.imagen && !p.imagenObsoleta).length;
+    const etiquetaImg = !totalPlanos || conImagen === totalPlanos ? `Regenerar todas las imágenes de esta escena (${totalPlanos})` : conImagen === 0 ? `Generar todas las imágenes de esta escena (${totalPlanos})` : `Generar las imágenes que faltan de esta escena (${totalPlanos - conImagen})`;
     return `<details class="card escena-planos" data-escena="${e.id}"${abiertas.has(e.id) ? ' open' : ''}>
       <summary><span class="escena-num">Escena ${n + 1}</span> ${escapar(e.titulo)} <span class="nota">· ${escapar(lugar)} · ≈ ${seg} s${e.planos?.length ? ` · ${e.planos.length} planos` : ''}</span></summary>
       ${Array.isArray(e.presentes) ? `<p class="nota">En escena desde el principio: ${escapar(e.presentes.map(id => nombreDe(u, id)).join(', ') || 'nadie')}</p>` : ''}
@@ -188,7 +191,8 @@ function pintarAhora() {
             <details class="plegado"><summary>Ver el prompt</summary><p class="corto">${escapar(x.prompt)}</p>${x.estado ? `<p class="corto">Estado: ${escapar(x.estado)}</p>` : ''}${x.cambio ? `<p class="corto">Cambio: ${escapar(x.cambio)}</p>` : ''}${x.movimiento ? `<p class="corto">Movimiento: ${escapar(x.movimiento)}</p>` : ''}</details>
           </div>
         </div>`).join('')}</div>
-      ${e.planos?.length ? `<div class="voz-escena"><strong>Voz de la escena</strong>
+      ${e.planos?.length ? `<button type="button" class="${conImagen === totalPlanos ? 'btn-sec' : 'btn ancho'}" data-accion="imagenes-escena" data-escena="${e.id}">${etiquetaImg}</button>
+      <div class="voz-escena"><strong>Voz de la escena</strong>
         ${vozVigente(e) ? e.voz.tramos.map(t => `<audio data-ruta="${escapar(t.ruta)}" controls preload="none"></audio>`).join('') : ''}
         ${e.voz && !vozVigente(e) ? '<p class="aviso-obsoleta">Esta voz es de una versión anterior o de antes de cambiar una voz: rehazla.</p>' : ''}
         ${caja('v-' + e.id)}
@@ -400,6 +404,23 @@ async function alPulsar(evento) {
       if (accion === 'rehacer-musica') d.episodios[numero].musica = {};
       await generarMusica({ proyectoId: proyectoActual().id, datos: d, numero, ...o, alAvanzar: pintarEnLote });
       return 'Música lista.';
+    });
+  }
+  if (accion === 'imagenes-escena') {
+    const escena = escenas.find(e => e.id === boton.dataset.escena);
+    return trabajar('e-' + escena.id, async o => {
+      const elementos = (escena.planos || []).map((x, i) => ({ escena, indice: i, plano: x }));
+      // Si la escena ya está completa y vigente, el botón regenera todas;
+      // si no, la tanda salta las que ya están bien, como el lote general.
+      const regenerando = elementos.length > 0 && elementos.every(el => el.plano.imagen && !el.plano.imagenObsoleta);
+      const cuenta = await tanda(elementos, {
+        ...o,
+        yaHecho: regenerando ? () => false : (el => Boolean(el.plano.imagen) && !el.plano.imagenObsoleta),
+        hacer: (el, op) => { op.aviso(`plano ${el.plano.id}…`); return imagenPlano(el.escena, el.indice, op); },
+        alAvanzar: pintarEnLote,
+      });
+      if (cuenta.fallidos) ultimoError = { donde: 'e-' + escena.id, texto: resumenTanda(cuenta) + '.\n' + cuenta.errores.map(e => `Plano ${e.elemento.plano.id}: ${e.texto}`).join('\n') };
+      return resumenTanda(cuenta) + '.';
     });
   }
   if (accion === 'lote') {
