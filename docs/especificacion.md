@@ -200,7 +200,8 @@ no inventar ninguno.**
 | Video Omni 360p (a mano) | `gemini-omni-1.2-flash` | Selector `gemini-omni-1.2-flash-360p`; API de Interacciones |
 | Video Omni 720p (a mano) | `gemini-omni-1.2-flash` | Selector `gemini-omni-1.2-flash-720p`; API de Interacciones |
 | Música | `lyria-002` | |
-| Voz | Gemini TTS por Vertex AI | 30 voces, ver 14.1 |
+| Voz (por defecto) | Chirp 3 HD (Text-to-Speech) | Las voces se piden a Google, ver 14.1 |
+| Voz (a mano) | `gemini-3.8-flash-tts` | Gemini 3.8 Flash TTS por Vertex, ver 14.1 |
 | Subtítulos | Speech-to-Text `latest_long` | Idioma `es-US` |
 
 **La familia Imagen de Google queda descartada por completo: no acepta imágenes
@@ -676,14 +677,18 @@ constantemente y es la razón por la que no se notan los fallos:
 ### 13.1 Parámetros
 
 - Modelo por defecto `veo-3.1-lite-generate-001`, con los otros dos en el selector.
-- **Duración 4 segundos** para los planos de acción. Veo acepta solo 4, 6 u 8.
+- **Duración por plano: la decide el director** en el desglose, de 3 a 6
+  segundos por plano de acción (regla del dueño, 2026-11-12); menos de 3 es
+  cobertura (imagen fija). Veo acepta solo 4, 6 u 8: se sube al escalón que
+  deja caber la toma. Omni acepta el segundo exacto.
 - Se arranca con `:predictLongRunning` y se consulta con `fetchPredictOperation`.
 - Omni (decisión del dueño, 2026-11-12): `gemini-omni-1.2-flash` está en el
   selector en 360p y 720p para probarlo a mano. No es un Veo: se arranca por la
   API de Interacciones en segundo plano (`background`) y se consulta por el
   nombre de la interacción; el clip llega dentro de la respuesta y lo guarda
-  el servidor en la ruta del plano. Misma duración de 4 s; sin prompt negativo
-  aparte (las prohibiciones viajan dentro del texto, como línea «Avoid:»).
+  el servidor en la ruta del plano. La duración es la del plano (3 a 6 s,
+  exacta); sin prompt negativo aparte (las prohibiciones viajan dentro del
+  texto, como línea «Avoid:»).
 - `storageUri` apuntando al bucket, para que el MP4 no pase por el endpoint.
 - La operación iniciada se guarda: si el dueño recarga la página, la consulta
   continúa.
@@ -770,19 +775,29 @@ Consecuencias y límites:
 
 ## 14. Audio
 
-### 14.1 Voces — Gemini TTS
+### 14.1 Voces — dos motores, Chirp por defecto
 
-- Las voces se piden a Google, no se escriben en el código. El estudio de anime
-  tenía una lista a mano y estaba mal: ofrecía una voz que no existe y solo cuatro
-  de las muchas disponibles. **Un endpoint pregunta qué voces puede usar este
-  proyecto.**
-- Gemini TTS tiene 30 voces. Los identificadores llevan prefijo `gemini_`.
-- Gemini TTS **no tiene control numérico de expresión**: el registro se fija con
-  una instrucción de estilo en texto. Hay tres registros definidos (plana, normal,
-  dramática) y se escriben como instrucción, no como parámetro.
-- En las voces de Cloud TTS tipo Chirp **no se envían los parámetros de tono y
-  velocidad**: con ellos la voz sale metálica y hueca. El ritmo tiene que venir de
-  la voz misma.
+- El motor se elige en Personajes (`ajustes.motorVoz`) y el predeterminado es
+  **Chirp 3 HD** (decisión del dueño: el Gemini de antes salía con pausas raras
+  y derivaba de tono entre llamadas). El otro motor entra solo a mano.
+- **Chirp 3 HD**: las voces se piden a Google, no se escriben en el código. El
+  estudio de anime tenía una lista a mano y estaba mal: ofrecía una voz que no
+  existe y solo cuatro de las muchas disponibles. **Un endpoint pregunta qué
+  voces puede usar este proyecto.**
+- **Gemini 3.8 Flash TTS** (decisión del dueño, 2026-11-12): el nuevo de
+  Gemini, que promete mantener el mismo tono de principio a fin. Sus voces
+  son las 30 fijas de Google con su género (la lista vive en el servidor, la
+  misma que usa su estudio de Legado); se llama por Vertex en `global` con
+  `generateContent`. El dueño lo prueba y decide si se queda.
+- En NINGÚN motor se envía instrucción de estilo, velocidad ni tono: la
+  lectura es plana, tal cual (con estilo la dicción sale deformada, probado
+  en su herramienta de audios; con velocidad/tono Chirp suena metálico). El
+  ritmo tiene que venir de la voz misma.
+- Cada personaje, el Sistema (siempre mujer) y cada extra con nombre tienen
+  SU voz del motor elegido, repartida sola por sexo y sin repetir; el dueño
+  puede cambiarla en Personajes y oír una muestra antes. Al cambiar de
+  motor, las voces se reparten de nuevo y las escenas ya grabadas quedan
+  marcadas para rehacer.
 
 ### 14.2 La deriva de tono, y cómo se contiene
 
@@ -796,6 +811,10 @@ Defensa que ya funciona en su estudio y que hay que replicar entera:
 3. **Nunca se regenera una línea sola.** Si hay que rehacerla, se rehace la escena.
 4. **Instrucción de estilo idéntica** en todas las llamadas del proyecto.
 5. **`loudnorm` en el montaje** para igualar volumen entre escenas.
+
+El Gemini 3.8 Flash TTS (2026) dice resolver la deriva de raíz; por eso el
+dueño ordenó colocarlo como motor elegible (14.1) para probarlo contra
+Chirp con sus propias escenas.
 
 ### 14.3 Ambiente para los planos de cobertura
 
