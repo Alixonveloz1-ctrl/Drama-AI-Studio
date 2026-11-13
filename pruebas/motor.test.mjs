@@ -293,6 +293,73 @@ test('el director de arte corrige sin borrar: la imagen queda obsoleta y dice qu
   assert.deepEqual(r.sinRevisar, ['e2'], 'lo que no miró no se da por bueno');
 });
 
+test('equipo: la memoria registra lo que cada personaje gana, pierde y reemplaza, sin cambiar descripciones ya dadas', () => {
+  const u = universoValido();
+  const orden = new Map([['e1', 0], ['e2', 1], ['e3', 2], ['e4', 3]]);
+  const objetos = {};
+  D.aplicarCambiosEquipo(objetos, [
+    { escena: 'e1', personaje: 'c1', accion: 'lleva', objeto: 'daga de hierro', descripcion: 'a short iron dagger with a worn leather-wrapped hilt and a chipped blade' },
+    { escena: 'e2', personaje: 'c1', accion: 'gana', objeto: 'la lanza metálica', descripcion: 'a long metallic spear with a leaf-shaped steel head and a dark wrapped grip' },
+    { escena: 'e3', personaje: 'c1', accion: 'gana', objeto: 'lanza metálica', descripcion: 'a totally different spear description that must never replace the first one' },
+    { escena: 'e4', personaje: 'c1', accion: 'reemplaza', objeto: 'lanza de plata', descripcion: 'a long silver spear with a polished leaf-shaped head and a black wrapped grip', reemplazaA: 'lanza metálica' },
+    { escena: 'e4', personaje: 'c1', accion: 'pierde', objeto: 'daga de hierro' },
+    { escena: 'e4', personaje: 'c2', accion: 'gana', objeto: 'llave', descripcion: 'corta' },
+    { escena: 'e9', personaje: 'c1', accion: 'gana', objeto: 'escudo', descripcion: 'a round wooden shield with iron bands and a dented rim all around' },
+  ], orden, u);
+  assert.deepEqual(objetos.c1.map(o => o.objeto), ['lanza de plata'], 'la metálica quedó reemplazada, la daga se perdió y lo de la escena e9 no existe en el orden');
+  assert.equal(objetos.c1[0].desde, 'e4');
+  assert.deepEqual(objetos.c2 || [], [], 'una descripción corta no registra nada');
+});
+
+test('equipo: el bloque viaja en el desglose y en la revisión, solo con lo que el personaje ya trae a esa altura', () => {
+  const e1 = { ...escenaDePrueba(), id: 'e1' };
+  const e2 = { ...escenaDePrueba(), id: 'e2' };
+  const datos = { formulario, universo: universoValido(), biblia: { direccionVisual: 'ocre' },
+    episodios: { 1: { bloques: [{ escenas: [e1, e2] }], equipo: { huella: 'x', objetos: { c1: [{ objeto: 'lanza metálica', descripcion: 'a long metallic spear with a leaf-shaped steel head and a dark wrapped grip', desde: 'e2' }] } } } } };
+  assert.equal(D.bloqueEquipo(datos, [e1]), '', 'en la escena 1 aún no la trae');
+  assert.match(D.bloqueEquipo(datos, [e1, e2]), /lanza metálica/);
+  assert.doesNotMatch(D.promptDesglose(datos, [e1]).mensaje, /EQUIPO QUE CADA PERSONAJE YA TRAE/);
+  assert.match(D.promptDesglose(datos, [e2]).mensaje, /EQUIPO QUE CADA PERSONAJE YA TRAE[\s\S]*a long metallic spear with a leaf-shaped steel head/);
+  e2.planos = [];
+  assert.match(D.promptRevision(datos, [e2]).mensaje, /EQUIPO QUE CADA PERSONAJE YA TRAE/);
+  assert.notEqual(D.huellaGuion([e1]), D.huellaGuion([{ ...e1, lineas: [{ tipo: 'dialogo', personaje: 'c1', texto: 'Otra cosa.' }] }]), 'si el guion cambia, la huella cambia');
+  assert.equal(D.huellaGuion([e1]), D.huellaGuion([e1]), 'la huella es estable');
+});
+
+test('redesglose: el plano que conserva su ancla hereda su imagen; si el prompt cambió, la heredada queda obsoleta', () => {
+  const viejos = [
+    { ancla: 'Uno dos tres', prompt: 'Scene with Lin Feng: prompt igual de largo que el nuevo, palabra por palabra.', imagen: { ruta: 'a' }, video: { ruta: 'va' } },
+    { ancla: 'Cuatro cinco seis', prompt: 'Scene with Lin Feng: prompt viejo.', imagen: { ruta: 'b' } },
+    { ancla: 'Siete ocho nueve', prompt: 'Scene with Lin Feng: prompt que ya no vuelve.', imagen: { ruta: 'c' } },
+  ];
+  const nuevos = [
+    { ancla: 'Uno dos tres', prompt: 'Scene with Lin Feng: prompt igual de largo que el nuevo, palabra por palabra.' },
+    { ancla: 'Cuatro cinco seis', prompt: 'Scene with Lin Feng: prompt corregido con la lanza metálica exacta.' },
+    { ancla: 'Diez once doce', prompt: 'Scene with Lin Feng: prompt nuevo.' },
+  ];
+  assert.equal(D.heredarMedios(viejos, nuevos), 2);
+  assert.equal(nuevos[0].imagen.ruta, 'a');
+  assert.equal(nuevos[0].video.ruta, 'va');
+  assert.equal(nuevos[0].imagenObsoleta, undefined, 'prompt idéntico: la imagen sigue buena');
+  assert.equal(nuevos[1].imagen.ruta, 'b');
+  assert.equal(nuevos[1].imagenObsoleta, true, 'prompt distinto: la heredada queda obsoleta');
+  assert.equal(nuevos[2].imagen, undefined, 'ancla distinta: no hereda nada');
+});
+
+test('director de arte: un objeto que no existe en ninguna ficha queda como AVISO, sin corregir ni marcar obsoleto', async () => {
+  const e = escenaDePrueba();
+  e.planos = D.validarDesglose(desgloseValido(e), [e], universoValido()).resultado.e1.map((p, n) => ({ ...p, id: `e1-${n + 1}` }));
+  const promptAntes = e.planos[1].prompt;
+  const datos = { formulario, universo: universoValido(), biblia: {} };
+  respuestas = [texto({ revisadas: ['e1'], correcciones: [], avisos: [{ escena: 'e1', plano: 2, motivo: 'el texto pide una ballesta que Lin Feng no trae y el patio no tiene' }] })];
+  const r = await D.revisar(datos, [e], {});
+  assert.equal(r.avisos, 1);
+  assert.equal(r.correcciones, 0);
+  assert.match(e.planos[1].revision, /^AVISO:/);
+  assert.equal(e.planos[1].prompt, promptAntes, 'el aviso no toca el prompt');
+  assert.equal(e.planos[1].imagenObsoleta, undefined, 'el aviso no marca obsoleto: decide el dueño');
+});
+
 test('desglose: las escenas se agrupan sin pasarse de 5 escenas ni de 24 planos por petición', () => {
   const corta = { ...escenaDePrueba(), lineas: [{ tipo: 'dialogo', personaje: 'c1', texto: 'Sí.' }] };
   const larga = { ...escenaDePrueba(), lineas: Array.from({ length: 40 }, () => ({ tipo: 'dialogo', personaje: 'c1', texto: 'Lo vi con mis propios ojos y no lo creo todavía.' })) };
@@ -330,7 +397,7 @@ test('desglose: si una escena sola se pasa de tiempo, se parte en dos llamadas c
   // La primera parte trae 7 planos y la escena admite 13 en total: la
   // segunda parte trae 6, como manda su objetivo.
   parte2.escenas[0].planos = parte2.escenas[0].planos.slice(0, 6);
-  const datos = { formulario, universo: u, biblia: {}, episodios: { 1: { bloques: [{ escenas: [e] }] } } };
+  const datos = { formulario, universo: u, biblia: {}, episodios: { 1: { bloques: [{ escenas: [e] }], equipo: { huella: D.huellaGuion([e]), objetos: {} } } } };
   respuestas = [
     { estado: 504, cuerpo: { error: 'Google tardó más de 50 s', tipo: 'tiempo' } },
     { estado: 504, cuerpo: { error: 'Google tardó más de 50 s', tipo: 'tiempo' } },
@@ -353,7 +420,7 @@ test('desglose: un fallo solo de un campo se corrige sin reescribir el desglose 
   const roto = desgloseValido(e);
   // El estado del plano 6 olvida a Wang Hu: fallo de UN campo.
   roto.escenas[0].planos[5].estado = 'Lin Feng kneels alone in the courtyard, breathing hard and looking down at the floor.';
-  const datos = { formulario, universo: u, biblia: {}, episodios: { 1: { bloques: [{ escenas: [e] }] } } };
+  const datos = { formulario, universo: u, biblia: {}, episodios: { 1: { bloques: [{ escenas: [e] }], equipo: { huella: D.huellaGuion([e]), objetos: {} } } } };
   respuestas = [
     texto(roto),
     texto({ correcciones: [{ escena: 'e1', plano: 6, estado: 'Lin Feng kneels on the stone floor of the courtyard; Wang Hu stands over him, two steps away.' }] }),
