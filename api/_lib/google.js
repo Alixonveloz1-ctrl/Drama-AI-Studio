@@ -87,6 +87,8 @@ const cfg = {
   // Voz: Chirp 3 HD de Text-to-Speech (decisión del dueño; lo mismo que
   // acabó usando su estudio de anime). SIN motor de respaldo (regla 2.7).
   get idiomaVoz()       { return leer('TTS_LANGUAGE', 'es-US'); },
+  // Motor de voz nuevo (a mano): Gemini 3.8 Flash TTS, por Vertex en global.
+  get modeloVozGemini() { return leer('TTS_GEMINI_MODEL', 'gemini-3.8-flash-tts'); },
   get modeloMusica()    { return leer('MUSIC_MODEL', 'lyria-3-pro-preview'); },
   get ubicacionMusica() { return leer('MUSIC_LOCATION', UBICACION_MUSICA_BASE[this.modeloMusica] || this.region); },
   get modeloSubtitulos(){ return leer('STT_MODEL', 'latest_long'); },
@@ -115,6 +117,7 @@ function describirAjustes() {
     fila('Video (predeterminado)', 'VEO_MODEL', cfg.modeloVideo, { opciones: MODELOS_VIDEO, ubicacion: cfg.region }),
     fila('Región general (video)', 'GCP_LOCATION', cfg.region),
     fila('Voces (Chirp 3 HD): idioma', 'TTS_LANGUAGE', cfg.idiomaVoz),
+    fila('Voces Gemini (motor a mano): modelo', 'TTS_GEMINI_MODEL', cfg.modeloVozGemini),
     fila('Música', 'MUSIC_MODEL', cfg.modeloMusica),
     fila('Región de la música', 'MUSIC_LOCATION', cfg.ubicacionMusica),
     fila('Subtítulos: modelo', 'STT_MODEL', cfg.modeloSubtitulos),
