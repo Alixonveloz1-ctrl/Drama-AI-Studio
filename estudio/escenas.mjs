@@ -46,7 +46,14 @@ export function montarEscenas(contenedor) {
   raiz.addEventListener('toggle', evento => {
     const d = evento.target.closest?.('details.escena-planos');
     if (!d || evento.target !== d || !abiertas) return;
-    if (d.open) { abiertas.add(d.dataset.escena); cargarImagenes(d, proyectoActual()?.id); }
+    if (d.open) {
+      abiertas.add(d.dataset.escena);
+      // Si la escena se pintó sin sus planos (las cerradas ya no los
+      // traen en la página), se redibuja para traerlos; si ya están,
+      // basta cargar sus medios.
+      if (!d.querySelector('.planos')) pintarEscenas();
+      else cargarImagenes(d, proyectoActual()?.id);
+    }
     else abiertas.delete(d.dataset.escena);
   }, true);
   // Selectores de modelo (plegados): se guardan en el proyecto.
@@ -62,6 +69,19 @@ export function montarEscenas(contenedor) {
 export function pintarEscenas() {
   fila = fila.then(() => new Promise(listo => requestAnimationFrame(() => { sinMoverPantalla(pintarAhora); listo(); })));
   return fila;
+}
+
+// Pintor de los lotes: redibujar la pantalla entera en CADA plano
+// terminado (cientos de veces en un episodio largo) ahoga el teléfono
+// — se pega, se reinicia la pestaña y se recalienta. Durante un lote el
+// avance se sigue en el aviso vivo, el redibujo completo llega al
+// terminar el trabajo, y entremedias como mucho cada 20 segundos.
+let ultimoPintadoLote = 0;
+function pintarEnLote() {
+  const ahora = Date.now();
+  if (ahora - ultimoPintadoLote < 20000) return;
+  ultimoPintadoLote = ahora;
+  pintarEscenas();
 }
 
 const caja = donde => (ultimoError?.donde === donde ? `<div class="caja-error" role="alert">${escapar(ultimoError.texto).replace(/\n/g, '<br>')}</div>` : '')
@@ -151,7 +171,7 @@ function pintarAhora() {
       ${Array.isArray(e.presentes) ? `<p class="nota">En escena desde el principio: ${escapar(e.presentes.map(id => nombreDe(u, id)).join(', ') || 'nadie')}</p>` : ''}
       <div class="lineas-compactas">${e.lineas.map(l => `<p><strong>${escapar(l.tipo === 'sistema' ? 'Sistema' : l.personaje === 'extra' ? (l.nombre || 'Extra') : fichaDe(u, l.personaje).nombre)}:</strong> ${escapar(l.texto)}</p>`).join('')}</div>
       ${caja('e-' + e.id)}
-      <div class="planos">${(e.planos || []).map((x, i) => `
+      ${abiertas.has(e.id) ? `<div class="planos">${(e.planos || []).map((x, i) => `
         <div class="plano${vertical ? ' lado' : ''}">
           <div class="marco ${vertical ? 'vertical' : 'horizontal'}">${x.video ? `<video data-ruta="${escapar(x.video.ruta)}"${x.imagen ? ` data-portada="${escapar(x.imagen.ruta)}"` : ''} controls playsinline preload="none"></video>` : x.imagen ? `<img data-ruta="${escapar(x.imagen.ruta)}" alt="Plano ${i + 1}" data-ver="1" loading="lazy" decoding="async">` : `<span>Plano ${i + 1}</span>`}</div>
           <div class="plano-datos">
@@ -173,7 +193,7 @@ function pintarAhora() {
         ${caja('v-' + e.id)}
         <button type="button" class="btn-sec" data-accion="voz" data-escena="${e.id}">${vozVigente(e) ? `Rehacer la voz de esta escena (≈ ${Math.round(segundosVoz(e))} s)` : 'Generar la voz de esta escena'}</button>
       </div>
-      <button type="button" class="btn-sec" data-accion="redesglose" data-escena="${e.id}">Rehacer el desglose de esta escena</button>` : ''}
+      <button type="button" class="btn-sec" data-accion="redesglose" data-escena="${e.id}">Rehacer el desglose de esta escena</button>` : ''}` : (e.planos?.length ? `<p class="nota">Los planos de esta escena se cargan al abrirla.</p>` : '')}
     </details>`;
   }).join('')}
   <div class="seccion"><h3>Música</h3></div>
@@ -188,9 +208,12 @@ function pintarAhora() {
   // cargar de golpe las imágenes de todo el episodio (630 planos en La
   // Balsa) revienta la memoria de la pestaña del teléfono — se reinicia
   // sola y el teléfono se recalienta — y el dueño revisa una escena cada
-  // vez. Al abrir otra escena, su «toggle» carga los suyos.
+  // vez. Más aún: las escenas cerradas ni siquiera traen sus planos en
+  // la página (se pintan al abrirlas), así que el redibujo entero es
+  // ligero. Los audios de escena van dentro de su escena abierta; aquí
+  // solo se firman los de la música.
   for (const det of raiz.querySelectorAll('details.escena-planos[open]')) cargarImagenes(det, p.id);
-  for (const au of raiz.querySelectorAll('audio[data-ruta]')) cargarImagenes(au.closest('.card') || au.parentElement, p.id);
+  for (const au of raiz.querySelectorAll('.pista audio[data-ruta]')) cargarImagenes(au.closest('.card') || au.parentElement, p.id);
 }
 
 function aviso(texto) {
@@ -289,14 +312,14 @@ async function alPulsar(evento) {
   const escenas = escenasDelEpisodio(d, numero);
   if (accion === 'desglose') {
     return trabajar('general', async o => {
-      const r = await desglosar(d, numero, { ...o, alAvanzar: () => pintarEscenas() });
+      const r = await desglosar(d, numero, { ...o, alAvanzar: pintarEnLote });
       informe = textoInforme(r);
       return 'Desglose listo.';
     });
   }
   if (accion === 'rehacer-todo') {
     return trabajar('general', async o => {
-      const r = await desglosar(d, numero, { ...o, rehacerTodo: true, alAvanzar: () => pintarEscenas() });
+      const r = await desglosar(d, numero, { ...o, rehacerTodo: true, alAvanzar: pintarEnLote });
       informe = textoInforme(r);
       return 'Desglose rehecho con las reglas de continuidad.';
     });
@@ -347,7 +370,7 @@ async function alPulsar(evento) {
         palabra: 'generados',
         yaHecho: el => Boolean(el.plano.video) && !el.plano.videoObsoleto && !el.plano.operacion,
         hacer: (el, op) => { op.aviso(`plano ${el.plano.id}…`); return videoPlano({ proyectoId: proyectoActual().id, datos: d, escena: el.escena, plano: el.plano, control: op.control, aviso: t => op.aviso(`plano ${el.plano.id} · ${t}`), guardar: o.guardar }); },
-        alAvanzar: () => pintarEscenas(),
+        alAvanzar: pintarEnLote,
       });
       if (cuenta.fallidos) ultimoError = { donde: 'general', texto: resumenTanda(cuenta) + '.\n' + cuenta.errores.map(e => `Plano ${e.elemento.plano.id}: ${e.texto}`).join('\n') };
       return resumenTanda(cuenta) + '.';
@@ -363,7 +386,7 @@ async function alPulsar(evento) {
         ...o, palabra: 'hechas',
         yaHecho: e => vozVigente(e),
         hacer: (e, op) => vozEscena({ proyectoId: proyectoActual().id, datos: d, escena: e, control: op.control, aviso: op.aviso, guardar: o.guardar }),
-        alAvanzar: () => pintarEscenas(),
+        alAvanzar: pintarEnLote,
       });
       if (cuenta.fallidos) ultimoError = { donde: 'general', texto: resumenTanda(cuenta) + '.\n' + cuenta.errores.map(x => `${x.elemento.titulo}: ${x.texto}`).join('\n') };
       return 'Voces: ' + resumenTanda(cuenta) + '.';
@@ -372,7 +395,7 @@ async function alPulsar(evento) {
   if (accion === 'musica' || accion === 'rehacer-musica') {
     return trabajar('musica', async o => {
       if (accion === 'rehacer-musica') d.episodios[numero].musica = {};
-      await generarMusica({ proyectoId: proyectoActual().id, datos: d, numero, ...o, alAvanzar: () => pintarEscenas() });
+      await generarMusica({ proyectoId: proyectoActual().id, datos: d, numero, ...o, alAvanzar: pintarEnLote });
       return 'Música lista.';
     });
   }
@@ -383,7 +406,7 @@ async function alPulsar(evento) {
         ...o,
         yaHecho: el => Boolean(el.plano.imagen) && !el.plano.imagenObsoleta,
         hacer: (el, op) => { op.aviso(`plano ${el.plano.id}…`); return imagenPlano(el.escena, el.indice, op); },
-        alAvanzar: () => pintarEscenas(),
+        alAvanzar: pintarEnLote,
       });
       if (cuenta.fallidos) ultimoError = { donde: 'general', texto: resumenTanda(cuenta) + '.\n' + cuenta.errores.map(e => `Plano ${e.elemento.plano.id}: ${e.texto}`).join('\n') };
       return resumenTanda(cuenta) + '.';
