@@ -58,9 +58,22 @@ export function montarEscenas(contenedor) {
   }, true);
   // Selectores de modelo (plegados): se guardan en el proyecto.
   raiz.addEventListener('change', evento => {
-    const campo = evento.target.closest('[name="modeloImagen"], [name="modeloVideo"]');
     const d = proyectoActual()?.datos;
-    if (!campo || !d) return;
+    if (!d) return;
+    // Ubicación de la escena: la ficha de lugar manda sobre el desglose;
+    // al corregirla, las fotos actuales (del lugar anterior) quedan
+    // obsoletas y el redesglose de la escena ya usa la ubicación nueva.
+    const ubicacion = evento.target.closest('[name="ubicacionEscena"]');
+    if (ubicacion) {
+      const escena = escenasDelEpisodio(d, d.episodioActual || 1).find(x => x.id === ubicacion.dataset.escena);
+      if (!escena || escena.escenario === ubicacion.value) return;
+      escena.escenario = ubicacion.value;
+      for (const p of escena.planos || []) { if (p.imagen) p.imagenObsoleta = true; if (p.video) p.videoObsoleto = true; }
+      guardar().then(() => pintarEscenas()).catch(e => avisar(explicar(e), 'error'));
+      return;
+    }
+    const campo = evento.target.closest('[name="modeloImagen"], [name="modeloVideo"]');
+    if (!campo) return;
     if (campo.name === 'modeloImagen') fijarModeloImagen(campo.value);
     d.ajustes = { ...(d.ajustes || {}), [campo.name]: campo.value };
     guardar().catch(e => avisar(explicar(e), 'error'));
@@ -175,7 +188,8 @@ function pintarAhora() {
       ${Array.isArray(e.presentes) ? `<p class="nota">En escena desde el principio: ${escapar(e.presentes.map(id => nombreDe(u, id)).join(', ') || 'nadie')}</p>` : ''}
       <div class="lineas-compactas">${e.lineas.map(l => `<p><strong>${escapar(l.tipo === 'sistema' ? 'Sistema' : l.personaje === 'extra' ? (l.nombre || 'Extra') : fichaDe(u, l.personaje).nombre)}:</strong> ${escapar(l.texto)}</p>`).join('')}</div>
       ${caja('e-' + e.id)}
-      ${abiertas.has(e.id) ? `<div class="planos">${(e.planos || []).map((x, i) => `
+      ${abiertas.has(e.id) ? `<label class="campo-linea">Ubicación de esta escena<select name="ubicacionEscena" data-escena="${e.id}">${u.escenarios.map(x => `<option value="${x.id}"${x.id === e.escenario ? ' selected' : ''}>${escapar(x.nombre)}</option>`).join('')}</select></label>
+      <div class="planos">${(e.planos || []).map((x, i) => `
         <div class="plano${vertical ? ' lado' : ''}">
           <div class="marco ${vertical ? 'vertical' : 'horizontal'}">${x.video ? `<video data-ruta="${escapar(x.video.ruta)}"${x.imagen ? ` data-portada="${escapar(x.imagen.ruta)}"` : ''} controls playsinline preload="none"></video>` : x.imagen ? `<img data-ruta="${escapar(x.imagen.ruta)}" alt="Plano ${i + 1}" data-ver="1" loading="lazy" decoding="async">` : `<span>Plano ${i + 1}</span>`}</div>
           <div class="plano-datos">
