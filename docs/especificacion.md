@@ -631,6 +631,7 @@ planos. Es la proporción real del referente de supervivencia.
   para que no pueda adelantar acontecimientos.
 - Dentro de una escena se conserva entre tomas: posición, ropa, lesiones, objetos
   y estado físico.
+- **Ubicación de la escena corregible por el dueño**: cada escena abierta muestra el selector «Ubicación de esta escena» con los escenarios del universo. Cambiarlo se guarda en el guion (la cabecera de la escena y la pestaña Historia muestran el lugar nuevo), marca obsoletas las fotos de la escena — muestran el lugar anterior — y el redesglose de esa escena ya trabaja con la ubicación nueva y con la ficha de ese lugar. Añadido el 2026-11-13: las escenas 26 y 27 de «La Balsa» estaban archivadas en la Isla de los Monstruos cuando su historia ocurre en el barco, y no existía ninguna forma de corregir la ficha.
 - **Memoria de equipo entre escenas** (arreglo del dueño, 2026-11-13, tras el
   fallo de la escena 14 de «La Balsa»: el diálogo decía «arpón», Leo ya tenía
   una lanza metálica dada por el Sistema y la foto salió con un palo de
