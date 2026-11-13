@@ -21,7 +21,7 @@
 import { proyectoActual, guardar } from './proyectos.mjs';
 import { pedirMedio, tanda, resumenTanda, cargarImagenes, recordarUrl } from './medios.mjs';
 import { desglosar, revisar, escenasDelEpisodio, textoEscena, NOMBRE_ENCUADRE, nombreDe, textoSoloVisibles } from './desglose.mjs';
-import { modeloImagen, MODELOS_IMAGEN } from './personajes.mjs';
+import { modeloImagen, MODELOS_IMAGEN, fijarModeloImagen } from './personajes.mjs';
 import { videoPlano, modeloVideo, MODELOS_VIDEO } from './videos.mjs';
 import { vozEscena, segundosVoz, vozVigente } from './voces.mjs';
 import { generarMusica, actosDelEpisodio, musicaVigente } from './musica.mjs';
@@ -61,6 +61,7 @@ export function montarEscenas(contenedor) {
     const campo = evento.target.closest('[name="modeloImagen"], [name="modeloVideo"]');
     const d = proyectoActual()?.datos;
     if (!campo || !d) return;
+    if (campo.name === 'modeloImagen') fijarModeloImagen(campo.value);
     d.ajustes = { ...(d.ajustes || {}), [campo.name]: campo.value };
     guardar().catch(e => avisar(explicar(e), 'error'));
   });
