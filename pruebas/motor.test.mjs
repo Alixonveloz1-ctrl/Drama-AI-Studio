@@ -1089,21 +1089,29 @@ test('sesión: cada petición lleva el token vigente y un 401 fuerza uno nuevo y
   }
 });
 
-import { modeloImagen, modeloPersonajes } from '../estudio/personajes.mjs';
+import { modeloImagen, modeloPersonajes, fijarModeloImagen, fijarModeloPersonajes } from '../estudio/personajes.mjs';
 
-test('modelos de imagen separados: el Pro de Personajes no toca las escenas (regla del dueño 2026-11-12)', () => {
-  // Sin ajustes, los dos parten del Flash.
+test('modelo de imagen: siempre el 2.1 al entrar; la elección a mano vale solo en la sesión (regla del dueño 2026-11-12)', () => {
+  // Al entrar (sin elección de sesión), los dos dan el 2.1 — y el ajuste
+  // GUARDADO no manda: un proyecto que quedó en Pro o en Flash amanece
+  // en el 2.1 igual.
+  assert.equal(modeloImagen({}), 'gemini-nano-banana-2.1');
+  assert.equal(modeloPersonajes({}), 'gemini-nano-banana-2.1');
+  assert.equal(modeloImagen({ ajustes: { modeloImagen: 'gemini-3-pro-image' } }), 'gemini-nano-banana-2.1');
+  assert.equal(modeloPersonajes({ ajustes: { modeloPersonajes: 'gemini-3.1-flash-image' } }), 'gemini-nano-banana-2.1');
+  // Elección a mano dentro de la sesión: vale, y cada selector va solo.
+  fijarModeloPersonajes('gemini-3-pro-image');
+  assert.equal(modeloPersonajes({}), 'gemini-3-pro-image');
+  assert.equal(modeloImagen({}), 'gemini-nano-banana-2.1', 'el Pro de Personajes no se cuela a las escenas');
+  fijarModeloImagen('gemini-3.1-flash-image');
   assert.equal(modeloImagen({}), 'gemini-3.1-flash-image');
-  assert.equal(modeloPersonajes({}), 'gemini-3.1-flash-image');
-  // Pro elegido a mano para los personajes: las escenas siguen en Flash.
-  const conProPersonajes = { ajustes: { modeloPersonajes: 'gemini-3-pro-image' } };
-  assert.equal(modeloPersonajes(conProPersonajes), 'gemini-3-pro-image');
-  assert.equal(modeloImagen(conProPersonajes), 'gemini-3.1-flash-image', 'el Pro de Personajes no se cuela a las escenas');
-  // Y al revés: el ajuste de Escenas no mueve el de Personajes.
-  const conProEscenas = { ajustes: { modeloImagen: 'gemini-3-pro-image' } };
-  assert.equal(modeloImagen(conProEscenas), 'gemini-3-pro-image');
-  assert.equal(modeloPersonajes(conProEscenas), 'gemini-3.1-flash-image', 'el ajuste de Escenas no mueve el de Personajes');
-  // Un valor desconocido cae al Flash en los dos.
-  assert.equal(modeloPersonajes({ ajustes: { modeloPersonajes: 'otro' } }), 'gemini-3.1-flash-image');
-  assert.equal(modeloImagen({ ajustes: { modeloImagen: 'otro' } }), 'gemini-3.1-flash-image');
+  assert.equal(modeloPersonajes({}), 'gemini-3-pro-image', 'el selector de Escenas no mueve el de Personajes');
+  // Un valor desconocido no fija nada; al soltar la elección se vuelve
+  // al 2.1 (así amanece la app al reabrir).
+  fijarModeloImagen('otro');
+  assert.equal(modeloImagen({}), 'gemini-nano-banana-2.1');
+  fijarModeloImagen(null);
+  fijarModeloPersonajes(null);
+  assert.equal(modeloImagen({}), 'gemini-nano-banana-2.1');
+  assert.equal(modeloPersonajes({}), 'gemini-nano-banana-2.1');
 });
