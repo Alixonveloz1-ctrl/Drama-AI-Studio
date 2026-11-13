@@ -29,6 +29,7 @@ import { escapar, avisar, verImagen, sinMoverPantalla } from './interfaz.mjs';
 const MODELOS = [
   { valor: 'gemini-3.1-flash-image', etiqueta: 'Nano Banana 2 (predeterminado)' },
   { valor: 'gemini-3-pro-image', etiqueta: 'Nano Banana Pro (más calidad)' },
+  { valor: 'gemini-nano-banana-2.1', etiqueta: 'Nano Banana 2.1 (nuevo)' },
 ];
 
 let raiz = null;
