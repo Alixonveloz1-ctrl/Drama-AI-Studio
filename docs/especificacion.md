@@ -686,9 +686,13 @@ constantemente y es la razón por la que no se notan los fallos:
   selector en 360p y 720p para probarlo a mano. No es un Veo: se arranca por la
   API de Interacciones en segundo plano (`background`) y se consulta por el
   nombre de la interacción; el clip llega dentro de la respuesta y lo guarda
-  el servidor en la ruta del plano. La duración es la del plano (3 a 6 s,
-  exacta); sin prompt negativo aparte (las prohibiciones viajan dentro del
-  texto, como línea «Avoid:»).
+  el servidor en la ruta del plano. OJO con la forma de esa respuesta: el
+  campo suelto `output_video` es SOLO de los SDK de Google; por REST el
+  video viaja dentro de los pasos de la interacción (el paso `model_output`,
+  en su parte de tipo `video`: los bytes en `data` o la dirección de
+  entrega en `uri`). La duración es la del plano (3 a 6 s, exacta); sin
+  prompt negativo aparte (las prohibiciones viajan dentro del texto, como
+  línea «Avoid:»).
 - `storageUri` apuntando al bucket, para que el MP4 no pase por el endpoint.
 - La operación iniciada se guarda: si el dueño recarga la página, la consulta
   continúa.
