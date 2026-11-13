@@ -7,18 +7,32 @@
 //    quiere, puede cambiarla en Personajes). El Sistema y cada extra con
 //    nombre también tienen su voz fija. La voz pertenece a la identidad
 //    madre: una variante habla con la voz de su personaje.
-//  · Las voces son Chirp 3 HD (decisión del dueño: las de Gemini salían con
-//    pausas raras). Una llamada por tramo de una misma voz, nunca una línea
-//    suelta; si hay que rehacer, se rehace la escena entera.
+//  · El motor de voz se elige en Personajes (ajustes.motorVoz): Chirp 3 HD,
+//    el de siempre, o Gemini 3.8 Flash TTS, el nuevo (decisión del dueño,
+//    2026-11-12: el Gemini viejo salía con pausas raras y derivaba de tono;
+//    el 3.8 promete mantenerlo y él lo prueba y decide). El catálogo que se
+//    reparte es siempre el del motor elegido. Una llamada por tramo de una
+//    misma voz, nunca una línea suelta; si hay que rehacer, se rehace la
+//    escena entera.
 // ════════════════════════════════════════════════════════════════
 import { llamar } from './red.mjs';
 import { pedirMedio, recordarUrl } from './medios.mjs';
 import { sexoDe } from './imagenes.mjs';
 
-let cacheVoces = null;
-export async function vocesDisponibles() {
-  if (!cacheVoces) cacheVoces = llamar('/api/voz').then(r => r.voces).catch(e => { cacheVoces = null; throw e; });
-  return cacheVoces;
+// El motor elegido: 'gemini' solo si el ajuste lo dice; si no, Chirp.
+export function motorVoz(datos) {
+  return datos?.ajustes?.motorVoz === 'gemini' ? 'gemini' : 'chirp';
+}
+
+let catalogos = null;
+async function cargarCatalogos() {
+  if (!catalogos) catalogos = llamar('/api/voz').then(r => ({ chirp: r.voces || [], gemini: r.vocesGemini || [] })).catch(e => { catalogos = null; throw e; });
+  return catalogos;
+}
+// El catálogo del motor elegido en el proyecto.
+export async function vocesDisponibles(datos) {
+  const c = await cargarCatalogos();
+  return motorVoz(datos) === 'gemini' ? c.gemini : c.chirp;
 }
 
 // Número estable a partir de un texto (para que un extra conserve su voz).
@@ -126,14 +140,14 @@ export function tramosDeEscena(escena, u) {
 // cuando están todos: una escena nunca queda con la mitad de voces nuevas.
 export async function vozEscena({ proyectoId, datos, escena, control, aviso, guardar }) {
   const u = datos.universo;
-  const voces = await vocesDisponibles();
+  const voces = await vocesDisponibles(datos);
   if (asignarVoces(u, voces, todasLasEscenas(datos)) | asignarExtras(u, [escena], voces)) await guardar();
   const tramos = tramosDeEscena(escena, u);
   const hechos = [];
   for (const [i, t] of tramos.entries()) {
     aviso?.(`voz de la escena · tramo ${i + 1} de ${tramos.length}…`);
     const r = await pedirMedio('/api/voz', {
-      proyecto: proyectoId, clave: `voz-${escena.id}-${i + 1}`, voz: t.voz,
+      proyecto: proyectoId, clave: `voz-${escena.id}-${i + 1}`, voz: t.voz, motor: motorVoz(datos),
       lineas: t.lineas.map(l => l.texto),
     }, { control, aviso });
     recordarUrl(r.ruta, r.url);
@@ -145,15 +159,18 @@ export async function vozEscena({ proyectoId, datos, escena, control, aviso, gua
 }
 
 // Muestra de una voz, para oírla antes de elegirla (se guarda y se reutiliza).
-// Las muestras viejas (Gemini) quedan en «muestrasVoz» y ya no se usan.
+// Las muestras se guardan POR MOTOR: varios nombres existen en los dos
+// catálogos y son voces distintas en cada uno; oír la del motor equivocado
+// engañaría al elegir.
 export const TEXTO_MUESTRA = 'Hola. Así sonaría mi voz en este drama. ¿Te convence, o prefieres otra?';
-export const muestraGuardada = (datos, voz) => datos?.muestrasChirp?.[voz];
+export const muestraGuardada = (datos, voz) => (motorVoz(datos) === 'gemini' ? datos?.muestrasGemini : datos?.muestrasChirp)?.[voz];
 export async function muestraDeVoz({ proyectoId, datos, voz, guardar }) {
-  datos.muestrasChirp ||= {};
-  if (datos.muestrasChirp[voz]) return datos.muestrasChirp[voz];
-  const r = await pedirMedio('/api/voz', { proyecto: proyectoId, clave: `muestra-chirp-${voz.toLowerCase()}`, voz, lineas: [TEXTO_MUESTRA] });
+  const motor = motorVoz(datos);
+  const mapa = motor === 'gemini' ? (datos.muestrasGemini ||= {}) : (datos.muestrasChirp ||= {});
+  if (mapa[voz]) return mapa[voz];
+  const r = await pedirMedio('/api/voz', { proyecto: proyectoId, clave: `muestra-${motor}-${voz.toLowerCase()}`, voz, motor, lineas: [TEXTO_MUESTRA] });
   recordarUrl(r.ruta, r.url);
-  datos.muestrasChirp[voz] = r.ruta;
+  mapa[voz] = r.ruta;
   await guardar();
   return r.ruta;
 }
