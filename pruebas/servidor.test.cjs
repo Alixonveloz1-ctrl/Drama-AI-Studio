@@ -221,8 +221,15 @@ test('la puerta no pide credenciales de Google antes de comprobar al propietario
 
 // ─── Configuración ───
 test('modelos y variables: los de la especificación, sin sustitutos', () => {
-  assert.deepEqual(google.MODELOS_IMAGEN, ['gemini-3.1-flash-image', 'gemini-3-pro-image']);
-  assert.deepEqual(google.MODELOS_VIDEO, ['veo-3.1-lite-generate-001', 'veo-3.1-fast-generate-001', 'veo-3.1-generate-001']);
+  assert.deepEqual(google.MODELOS_IMAGEN, ['gemini-3.1-flash-image', 'gemini-3-pro-image', 'gemini-nano-banana-2.1']);
+  assert.deepEqual(google.MODELOS_VIDEO, ['veo-3.1-lite-generate-001', 'veo-3.1-fast-generate-001', 'veo-3.1-generate-001', 'gemini-omni-1.2-flash-360p', 'gemini-omni-1.2-flash-720p']);
+  // El 2.1 se sirve en «global», como los demás Gemini de imagen.
+  assert.equal(google.ubicacionImagen('gemini-nano-banana-2.1'), 'global');
+  // Omni: el valor del selector se traduce a modelo + resolución; un Veo no.
+  assert.deepEqual(google.omniDe('gemini-omni-1.2-flash-360p'), { modelo: 'gemini-omni-1.2-flash', resolucion: '360p' });
+  assert.deepEqual(google.omniDe('gemini-omni-1.2-flash-720p'), { modelo: 'gemini-omni-1.2-flash', resolucion: '720p' });
+  assert.equal(google.omniDe('veo-3.1-lite-generate-001'), null);
+  assert.equal(google.urlInteracciones('mi-proyecto'), 'https://aiplatform.googleapis.com/v1beta1/projects/mi-proyecto/locations/global/interactions');
   const c = google.cfg;
   assert.equal(c.modeloTexto, 'gemini-3.1-pro-preview');
   assert.equal(c.ubicacionTexto, 'global');
