@@ -72,6 +72,8 @@ test('los endpoints corren en Node.js, nunca en Edge, y caben en el límite de V
 test('solo los identificadores de modelo de la especificación', () => {
   const permitidos = new Set(['gemini-3.1-pro-preview', 'gemini-3.1-flash-image', 'gemini-3-pro-image',
     'veo-3.1-lite-generate-001', 'veo-3.1-fast-generate-001', 'veo-3.1-generate-001',
+    // Imagen 2.1 y video Omni: opciones nuevas de los selectores (decisión del dueño, 2026-11-12).
+    'gemini-nano-banana-2.1', 'gemini-omni-1.2-flash', 'gemini-omni-1.2-flash-360p', 'gemini-omni-1.2-flash-720p',
     // Música: Lyria 3 Pro, la de la parte de cortos del estudio de anime (decisión del dueño).
     'lyria-3-pro-preview']);
   for (const ruta of [...de('.js', '.mjs', '.cjs', '.html', '.py')]) {
