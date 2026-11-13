@@ -20,7 +20,7 @@
 // ════════════════════════════════════════════════════════════════
 import { proyectoActual, guardar } from './proyectos.mjs';
 import { pedirMedio, tanda, resumenTanda, cargarImagenes, recordarUrl } from './medios.mjs';
-import { desglosar, revisar, escenasDelEpisodio, textoEscena, NOMBRE_ENCUADRE, nombreDe, textoSoloVisibles } from './desglose.mjs';
+import { desglosar, revisar, asegurarEquipo, escenasDelEpisodio, textoEscena, NOMBRE_ENCUADRE, nombreDe, textoSoloVisibles } from './desglose.mjs';
 import { modeloImagen, MODELOS_IMAGEN, fijarModeloImagen } from './personajes.mjs';
 import { videoPlano, modeloVideo, MODELOS_VIDEO } from './videos.mjs';
 import { vozEscena, segundosVoz, vozVigente } from './voces.mjs';
@@ -295,6 +295,7 @@ async function trabajar(donde, tarea) {
 function textoInforme(r) {
   const partes = [];
   if (r.revisadas) partes.push(`El director de arte revisó ${r.revisadas} escena(s)${r.correcciones ? ` y corrigió ${r.correcciones} plano(s); las imágenes afectadas quedan marcadas como obsoletas` : ' y no encontró fallos en ellas'}.`);
+  if (r.avisos) partes.push(`Dejó ${r.avisos} aviso(s) en planos que necesitan tu decisión: en esas tarjetas dice «Director de arte: AVISO».`);
   if (r.sinRevisar.length) partes.push(`No pudo revisar ${r.sinRevisar.length} escena(s) (posible límite de peticiones): no se da por buenas.`);
   return partes.join(' ');
 }
@@ -335,12 +336,13 @@ async function alPulsar(evento) {
   }
   if (accion === 'revisar') {
     return trabajar('general', async o => {
-      const total = { revisadas: 0, correcciones: 0, sinRevisar: [] };
+      const total = { revisadas: 0, correcciones: 0, avisos: 0, sinRevisar: [] };
+      await asegurarEquipo(d, numero, o);
       const conPlanos = escenas.filter(e => e.planos?.length);
       for (let i = 0; i < conPlanos.length; i += 5) {
         try {
           const r = await revisar(d, conPlanos.slice(i, i + 5), o);
-          total.revisadas += r.revisadas; total.correcciones += r.correcciones; total.sinRevisar.push(...r.sinRevisar);
+          total.revisadas += r.revisadas; total.correcciones += r.correcciones; total.avisos += r.avisos || 0; total.sinRevisar.push(...r.sinRevisar);
         } catch (e) {
           if (e.detenido) throw e;
           total.sinRevisar.push(...conPlanos.slice(i, i + 5).map(x => x.id));
