@@ -20,7 +20,7 @@ import { proyectoActual, guardar } from './proyectos.mjs';
 import { pedirMedio, tanda, resumenTanda, cargarImagenes, recordarUrl } from './medios.mjs';
 import { promptFichaPersonaje, promptVariante, direccionDeAspecto } from './imagenes.mjs';
 import { esEcchi } from './prompts.mjs';
-import { vocesDisponibles, asignarVoces, muestraDeVoz, muestraGuardada } from './voces.mjs';
+import { vocesDisponibles, asignarVoces, muestraDeVoz, muestraGuardada, motorVoz } from './voces.mjs';
 import { escenasDelEpisodio } from './desglose.mjs';
 import { crearControl } from './texto.mjs';
 import { explicar } from './red.mjs';
@@ -78,6 +78,20 @@ export function montarPersonajes(contenedor) {
       d.ajustes = { ...(d.ajustes || {}), modeloPersonajes: evento.target.value };
       guardar().catch(e => avisar(explicar(e), 'error'));
     }
+    if (evento.target.matches('[name="motorVoz"]')) {
+      const d = proyectoActual()?.datos;
+      if (!d) return;
+      d.ajustes = { ...(d.ajustes || {}), motorVoz: evento.target.value };
+      // Las escenas ya grabadas suenan con el motor anterior: quedan
+      // marcadas para rehacer, como cuando cambia una voz. Las voces se
+      // reparten de nuevo solas entre las del motor nuevo al repintar.
+      for (const n of Object.keys(d.episodios || {})) {
+        for (const e of escenasDelEpisodio(d, Number(n))) if (e.voz) e.voz.obsoleta = true;
+      }
+      voces = null;
+      guardar().catch(e => avisar(explicar(e), 'error'));
+      pintarPersonajes();
+    }
   });
 }
 
@@ -113,6 +127,10 @@ function pintarAhora() {
     <p class="nota">Cada personaje necesita su ficha de referencia antes de las escenas: así no cambia de cara entre planos. El modelo de aquí es solo para los personajes; el de las escenas se elige en Escenas y no se toca desde aquí.</p>
     ${caja('lote')}
     <button type="button" class="btn ancho" data-accion="lote"${faltan ? '' : ' disabled'}>${faltan ? `Generar las ${faltan} referencias que faltan` : 'Todas las referencias están hechas'}</button>
+  </div>
+  <div class="card">
+    <label class="campo-linea">Motor de voz de los diálogos<select name="motorVoz"><option value="chirp"${motorVoz(d) === 'chirp' ? ' selected' : ''}>Chirp 3 HD (el de siempre)</option><option value="gemini"${motorVoz(d) === 'gemini' ? ' selected' : ''}>Gemini 3.8 Flash TTS (el nuevo)</option></select></label>
+    <p class="nota">Es el motor que lee los diálogos de las escenas. Al cambiarlo, las voces de los personajes se reparten de nuevo entre las del motor elegido — cada personaje conserva la suya en su tarjeta y puedes cambiarla a mano — y las escenas ya grabadas quedan marcadas para rehacer, porque suenan con el motor anterior.</p>
   </div>
 
   <div class="seccion"><h3>Personajes</h3></div>
@@ -158,7 +176,7 @@ function pintarAhora() {
   raiz.querySelectorAll('[data-accion]').forEach(b => { if (ocupado && !b.dataset.libre) b.disabled = true; });
   cargarImagenes(raiz, p.id);
   if (!voces) {
-    vocesDisponibles().then(lista => {
+    vocesDisponibles(d).then(lista => {
       voces = lista;
       if (asignarVoces(u, lista, Object.keys(d.episodios || {}).flatMap(n => escenasDelEpisodio(d, Number(n))))) guardar().catch(() => {});
       pintarPersonajes();
