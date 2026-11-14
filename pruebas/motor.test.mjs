@@ -412,6 +412,43 @@ test('candado: un redesglose con las mismas anclas sí pasa, reescribe los texto
   assert.match(e.planos[0].prompt, /reworded prompt for the lock test/, 'y los textos sí se reescriben');
 });
 
+// Un corte con la proporción baja de acción (3 de 7), como el guardado
+// de la escena 44 de La Balsa: válido como corte conservado en un
+// redesglose, rechazable en un desglose nuevo.
+function desgloseProporcionBaja(escena) {
+  const d = desgloseValido(escena);
+  d.escenas[0].planos.forEach((p, i) => {
+    p.tipo = i < 3 ? 'accion' : 'cobertura';
+    p.movimiento = p.tipo === 'accion' ? 'Lin Feng slowly raises his head.' : '';
+  });
+  return d;
+}
+
+test('proporción: un desglose NUEVO con la proporción de acción baja se sigue rechazando', async () => {
+  const u = universoValido();
+  u.escenarios.forEach(x => { x.ficha = x.ficha || 'Exterior. Stone courtyard, wooden gate on the left, well on the right, dawn light.'; });
+  const e = escenaDePrueba();
+  const datos = { formulario, universo: u, biblia: {}, episodios: { 1: { bloques: [{ escenas: [e] }], equipo: { huella: D.huellaGuion([e], u), objetos: {} }, vestuario: { huella: D.huellaGuion([e], u), atuendos: {} } } } };
+  const bajo = desgloseProporcionBaja(e);
+  respuestas = [texto(bajo), texto(bajo), texto(bajo), texto(bajo), texto(bajo), texto(bajo)];
+  await assert.rejects(D.desglosar(datos, 1, { guardar: async () => {} }), /proporción de planos de acción/);
+  assert.ok(!e.planos?.length, 'la escena queda sin desglose: lo (no) guardado se conserva');
+});
+
+test('proporción: el REDESGLOSE de un corte guardado con la proporción baja no se bloquea', async () => {
+  const u = universoValido();
+  u.escenarios.forEach(x => { x.ficha = x.ficha || 'Exterior. Stone courtyard, wooden gate on the left, well on the right, dawn light.'; });
+  const e = escenaDePrueba();
+  const datos = { formulario, universo: u, biblia: {}, episodios: { 1: { bloques: [{ escenas: [e] }], equipo: { huella: D.huellaGuion([e], u), objetos: {} }, vestuario: { huella: D.huellaGuion([e], u), atuendos: {} } } } };
+  // El corte guardado de la escena: 7 planos, 3 de acción (43 %), con imágenes.
+  e.planos = desgloseProporcionBaja(e).escenas[0].planos.map((p, i) => ({ ...p, id: `e1-${i + 1}`, imagen: { ruta: 'pagada-' + (i + 1) } }));
+  e.presentes = ['c1', 'c2'];
+  respuestas = [texto(desgloseProporcionBaja(e)), texto({ revisadas: ['e1'], correcciones: [] })];
+  await D.desglosar(datos, 1, { guardar: async () => {}, soloEscena: 'e1' });
+  assert.equal(e.planos.length, 7, 'el redesglose conserva las 7 tomas');
+  assert.ok(e.planos.every(p => p.imagen?.ruta), 'y hereda todas sus imágenes pagadas');
+});
+
 test('redesglose: el plano que conserva su ancla hereda su imagen; si el prompt cambió, la heredada queda obsoleta', () => {
   const viejos = [
     { ancla: 'Uno dos tres', prompt: 'Scene with Lin Feng: prompt igual de largo que el nuevo, palabra por palabra.', imagen: { ruta: 'a' }, video: { ruta: 'va' } },
