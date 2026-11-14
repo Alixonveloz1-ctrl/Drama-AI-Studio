@@ -170,6 +170,21 @@ export function aplicarCambiosVestuario(atuendos, eventos, orden, universo) {
   return atuendos;
 }
 
+// El candado del redesglose (pedido del dueño el 2026-11-13, tras ver
+// cómo los redesgloses encogían escenas —una de 12 tomas volvió con 7—
+// y las tomas que desaparecían se llevaban imágenes ya pagadas): una
+// escena que YA tiene desglose conserva sus tomas; el redesglose solo
+// reescribe sus textos.
+export function bloqueConservacion(escenas) {
+  const bloques = [];
+  for (const e of escenas || []) {
+    if (!e.planos?.length) continue;
+    const lista = e.planos.map((p, i) => `${i + 1}. «${p.ancla}»`).join('\n');
+    bloques.push(`CONSERVACIÓN DE TOMAS — la escena ${e.id} YA tiene su desglose con imágenes pagadas: devuelve EXACTAMENTE estos ${e.planos.length} planos, en este mismo orden y con estas MISMAS anclas, palabra por palabra:\n${lista}\nTu trabajo es SOLO reescribir los textos de cada plano (prompt, estado, cambio, movimiento, encuadre y segundos) con las reglas vigentes. No fundas planos, no los dividas, no agregues ni quites ninguno: cada ancla que cambies o pierdas destruye una imagen que ya se pagó.`);
+  }
+  return bloques.length ? `\n\n${bloques.join('\n\n')}` : '';
+}
+
 // El bloque de vestuario que acompaña a las llamadas del desglose, de
 // la corrección y de la revisión: el atuendo vigente de cada personaje
 // cuando empieza la ÚLTIMA escena del lote, con su descripción EXACTA.
@@ -423,7 +438,7 @@ RITMO DE MONTAJE: ${datos.biblia?.ritmoMontaje || ''}
 Formato de imagen: ${datos.formulario.formato === '16:9' ? '16:9 horizontal' : '9:16 vertical: encuadres verticales, personajes centrados, poco aire lateral'}.
 
 ${escenasParaPrompt(u, escenas)}
-${extra}
+${extra}${bloqueConservacion(escenas)}
 Devuelve JSON con EXACTAMENTE ${escenas.length} escenas, en el mismo orden:
 {"escenas":[{"id":"${escenas[0].id}","presentes":["c1","c2"],"planos":[{"tipo":"accion | cobertura","encuadre":"general | medio | primer_plano | detalle","ancla":"palabras copiadas del texto","personajes":["c1"],"entran":[],"salen":[],"estado":"where every present person is and what they do at this instant, by name, plus key objects","cambio":"what changed since the previous shot (empty only in the first shot)","peso":3,"segundos":4,"prompt":"Scene with …","movimiento":"… (solo acción)","sistema":"texto de la línea del Sistema que aparece sobre este plano, o vacío"}]}]}`,
     temperatura: 0.5,
@@ -506,6 +521,18 @@ export function validarDesglose(json, escenas, universo) {
     const donde = i => `el plano ${i + 1} de la escena ${escena.id}`;
     if (planos.length < minimoPlanos(escena)) problemas.push(`la escena ${escena.id} tiene ${planos.length} planos y necesita al menos ${minimoPlanos(escena)}`);
     if (planos.length > maximoPlanos(escena)) problemas.push(`la escena ${escena.id} tiene demasiados planos (${planos.length}; máximo ${maximoPlanos(escena)})`);
+    // Candado del redesglose: si la escena ya tenía desglose, el nuevo
+    // debe conservar TODAS sus tomas (mismas anclas, mismo orden): un
+    // corte distinto destruye imágenes ya pagadas. Es un fallo
+    // estructural: se reintenta el desglose completo, no se corrige un
+    // campo suelto.
+    if (Array.isArray(escena.planos) && escena.planos.length) {
+      const viejas = escena.planos.map(p => normalizar(p.ancla || ''));
+      const nuevas = planos.map(p => normalizar(p.ancla));
+      if (nuevas.length !== viejas.length || nuevas.some((a, i) => a !== viejas[i])) {
+        problemas.push(`la escena ${escena.id} ya tenía ${viejas.length} planos con imágenes pagadas y el redesglose debe conservarlos todos, con las mismas anclas y en el mismo orden (llegaron ${nuevas.length} planos)`);
+      }
+    }
     // Lo que se ve al empezar va primero: es el principio de la escena.
     const texto = normalizar(escena.accion + ' ' + textoEscena(escena));
     // Frases completas: los tramos válidos de cada línea hablada y el
@@ -742,9 +769,12 @@ export function partirEscena(escena) {
   if (total < 24) return null;
   let corte = 1, acumulado = pesos[0];
   while (corte < escena.lineas.length - 1 && acumulado + pesos[corte] <= total / 2) { acumulado += pesos[corte]; corte++; }
+  // Las partes no cargan los planos viejos: la conservación de tomas se
+  // exige sobre la escena UNIDA (la validación final de desgloseEnDosPartes
+  // recibe la escena verdadera, con sus planos).
   return [
-    { ...escena, lineas: escena.lineas.slice(0, corte) },
-    { ...escena, lineas: escena.lineas.slice(corte) },
+    { ...escena, lineas: escena.lineas.slice(0, corte), planos: [] },
+    { ...escena, lineas: escena.lineas.slice(corte), planos: [] },
   ];
 }
 
