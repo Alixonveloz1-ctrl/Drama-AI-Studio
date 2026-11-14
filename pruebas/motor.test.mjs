@@ -368,6 +368,50 @@ test('vestuario: la ficha manda en el lector y un cambio de ficha reconstruye la
   assert.equal(D.huellaGuion([e], u), D.huellaGuion([e], u), 'la huella con fichas es estable');
 });
 
+test('candado: el prompt del redesglose lista las anclas que debe conservar', () => {
+  const e = { ...escenaDePrueba(), id: 'e1', planos: [{ ancla: 'Uno dos tres' }, { ancla: 'Cuatro cinco seis' }] };
+  const datos = { formulario, universo: universoValido(), biblia: {} };
+  assert.match(D.bloqueConservacion([e]), /CONSERVACIÓN DE TOMAS[\s\S]*Uno dos tres[\s\S]*Cuatro cinco seis/);
+  assert.equal(D.bloqueConservacion([{ ...e, planos: [] }]), '');
+  assert.match(D.promptDesglose(datos, [e]).mensaje, /CONSERVACIÓN DE TOMAS/);
+  assert.doesNotMatch(D.promptDesglose(datos, [{ ...e, planos: [] }]).mensaje, /CONSERVACIÓN DE TOMAS/);
+});
+
+test('candado: un redesglose que cambia las tomas se rechaza y la escena conserva las suyas con sus imágenes', async () => {
+  const u = universoValido();
+  u.escenarios.forEach(x => { x.ficha = x.ficha || 'Exterior. Stone courtyard, wooden gate on the left, well on the right, dawn light.'; });
+  const e = escenaDePrueba();
+  const datos = { formulario, universo: u, biblia: {}, episodios: { 1: { bloques: [{ escenas: [e] }], equipo: { huella: D.huellaGuion([e], u), objetos: {} }, vestuario: { huella: D.huellaGuion([e], u), atuendos: {} } } } };
+  respuestas = [texto(desgloseValido(e)), texto({ revisadas: ['e1'], correcciones: [] })];
+  await D.desglosar(datos, 1, { guardar: async () => {} });
+  e.planos.forEach(p => { p.imagen = { ruta: 'pagada-' + p.id }; });
+  const anclasAntes = e.planos.map(p => p.ancla);
+  const corto = desgloseValido(e);
+  corto.escenas[0].planos = corto.escenas[0].planos.slice(0, -1);
+  respuestas = [texto(corto), texto(corto), texto(corto), texto(corto), texto(corto), texto(corto), texto({ correcciones: [] }), texto({ revisadas: ['e1'], correcciones: [] })];
+  await assert.rejects(D.desglosar(datos, 1, { guardar: async () => {}, soloEscena: 'e1' }), /se conserva/);
+  assert.deepEqual(e.planos.map(p => p.ancla), anclasAntes, 'la escena conserva sus tomas');
+  assert.ok(e.planos.every(p => p.imagen?.ruta), 'y conserva sus imágenes pagadas');
+});
+
+test('candado: un redesglose con las mismas anclas sí pasa, reescribe los textos y hereda las imágenes', async () => {
+  const u = universoValido();
+  u.escenarios.forEach(x => { x.ficha = x.ficha || 'Exterior. Stone courtyard, wooden gate on the left, well on the right, dawn light.'; });
+  const e = escenaDePrueba();
+  const datos = { formulario, universo: u, biblia: {}, episodios: { 1: { bloques: [{ escenas: [e] }], equipo: { huella: D.huellaGuion([e], u), objetos: {} }, vestuario: { huella: D.huellaGuion([e], u), atuendos: {} } } } };
+  respuestas = [texto(desgloseValido(e)), texto({ revisadas: ['e1'], correcciones: [] })];
+  await D.desglosar(datos, 1, { guardar: async () => {} });
+  e.planos.forEach(p => { p.imagen = { ruta: 'pagada-' + p.id }; });
+  const totalAntes = e.planos.length;
+  const mismo = desgloseValido(e);
+  mismo.escenas[0].planos.forEach(p => { p.prompt = 'Scene with Lin Feng (short black hair, grey robe): wide shot from the gate, reworded prompt for the lock test, kneeling in the courtyard.'; });
+  respuestas = [texto(mismo), texto({ revisadas: ['e1'], correcciones: [] })];
+  await D.desglosar(datos, 1, { guardar: async () => {}, soloEscena: 'e1' });
+  assert.equal(e.planos.length, totalAntes, 'el redesglose conserva el número de tomas');
+  assert.ok(e.planos.every(p => p.imagen?.ruta), 'todas heredan su imagen pagada');
+  assert.match(e.planos[0].prompt, /reworded prompt for the lock test/, 'y los textos sí se reescriben');
+});
+
 test('redesglose: el plano que conserva su ancla hereda su imagen; si el prompt cambió, la heredada queda obsoleta', () => {
   const viejos = [
     { ancla: 'Uno dos tres', prompt: 'Scene with Lin Feng: prompt igual de largo que el nuevo, palabra por palabra.', imagen: { ruta: 'a' }, video: { ruta: 'va' } },
