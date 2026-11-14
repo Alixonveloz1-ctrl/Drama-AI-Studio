@@ -587,8 +587,15 @@ export function validarDesglose(json, escenas, universo) {
     const hablan = [...new Set(escena.lineas.filter(l => l.tipo !== 'sistema' && ids.has(l.personaje)).map(l => l.personaje))];
     const ausentes = hablan.filter(id => !algunaVez.has(id) && ![...algunaVez].some(v => (universo.variantes || []).find(x => x.id === v)?.madre === id));
     if (ausentes.length) problemas.push(`en la escena ${escena.id} habla ${ausentes.map(id => nombreDe(universo, id)).join(', ')} pero no está en "presentes" ni entra en ningún plano`);
-    accion += planos.filter(p => p.tipo === 'accion').length;
-    total += planos.length;
+    // La proporción de acción juzga los cortes NUEVOS. En un redesglose
+    // el corte guardado se conserva (candado) y su ritmo ya es la versión
+    // válida: contarlo aquí lo haría inalcanzable y bloquearía la
+    // reescritura de sus textos (la escena 44 de La Balsa quedó atrapada
+    // así: su corte guardado ronda el 43 % de acción).
+    if (!escena.planos?.length) {
+      accion += planos.filter(p => p.tipo === 'accion').length;
+      total += planos.length;
+    }
     resultado[escena.id] = planos;
     presentesDe[escena.id] = presentes;
   }
