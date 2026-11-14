@@ -157,6 +157,12 @@ function pintarAhora() {
           <h2>${escapar(x.nombre)}</h2>
           <p class="nota">${escapar(x.rol)} · ${x.edad} años</p>
           <p class="corto">${escapar(x.aspecto)}</p>
+          <details class="editar-ficha"><summary>Editar la descripción de la ficha</summary>
+            <label class="campo">Descripción (español)<textarea rows="4" data-aspecto="${x.id}">${escapar(x.aspecto)}</textarea></label>
+            <label class="campo">Descripción en inglés (la que leen los desgloses)<textarea rows="4" data-appearance="${x.id}">${escapar(x.appearance || '')}</textarea></label>
+            <p class="nota">De aquí sale la ropa del personaje: su prenda y su color se copian de esta ficha a todos los planos, y el guion no los cambia. Si corriges la descripción, la memoria de continuidad se rehace sola la próxima vez que desgloses o revises una escena.</p>
+            <button type="button" class="btn-sec" data-accion="guardar-ficha" data-id="${x.id}">Guardar la descripción</button>
+          </details>
           ${voces ? `<label class="campo-linea">Voz<select data-voz="${x.id}">${voces.map(v => `<option value="${v.nombre}"${v.nombre === x.voz ? ' selected' : ''}>${v.nombre}${v.genero ? ' · ' + v.genero : ''}</option>`).join('')}</select></label>
           ${caja('m-' + x.id)}${muestraGuardada(d, x.voz) ? `<audio data-ruta="${escapar(muestraGuardada(d, x.voz))}" controls preload="none"></audio>` : `<button type="button" class="btn-sec" data-accion="oir-voz" data-id="${x.id}">Escuchar esta voz</button>`}` : `<p class="nota">Voz: ${escapar(x.voz || 'se asigna sola')}</p>`}
         </div>
@@ -266,6 +272,17 @@ async function alPulsar(evento) {
       await muestraDeVoz({ proyectoId: proyectoActual().id, datos: d, voz: x.voz, guardar: () => guardar() });
       return 'Muestra lista: pulsa reproducir.';
     });
+  }
+  if (accion === 'guardar-ficha') {
+    const x = u.personajes.find(p => p.id === id);
+    const aspecto = raiz.querySelector(`[data-aspecto="${id}"]`)?.value.trim();
+    const appearance = raiz.querySelector(`[data-appearance="${id}"]`)?.value.trim();
+    if (!aspecto || !appearance) { avisar('La descripción no puede quedar vacía ni en español ni en inglés.', 'error'); return; }
+    x.aspecto = aspecto;
+    x.appearance = appearance;
+    try { await guardar(); } catch (e) { avisar(explicar(e), 'error'); return; }
+    avisar('Descripción guardada: manda esta ficha, y la memoria de continuidad se rehace sola al desglosar o revisar.', 'ok');
+    return pintarPersonajes();
   }
   if (accion === 'personaje') return trabajar('p-' + id, async o => { await fichaPersonaje(u.personajes.find(x => x.id === id), o); return 'Ficha lista.'; });
   if (accion === 'variante') return trabajar('v-' + id, async o => { await fichaVariante(u.variantes.find(x => x.id === id), o); return 'Variante lista.'; });
