@@ -65,8 +65,10 @@ export const SISTEMA_EQUIPO = `Eres el encargado de la CONTINUIDAD DE EQUIPO de 
 - Solo objetos que el personaje lleva consigo o usa con las manos y que pueden volver a aparecer: un arma, una herramienta, una llave, un objeto clave de la historia. NO ropa (la ropa se registra aparte, en "vestuario"), NO muebles ni cosas del lugar (eso es el inventario del escenario), NO lo que se consume en el momento (una comida que se come), salvo que el texto lo mantenga en su poder.
 - "descripcion" (EN INGLÉS): cómo debe dibujarse ese objeto SIEMPRE — material, forma, tamaño y color, en una frase completa y concreta. Esa frase se copiará palabra por palabra en los prompts de imagen: escríbela una sola vez y bien. Si el objeto ya está en la lista que te doy, NO lo registres otra vez ni cambies su descripción.
 - "lleva": el personaje ya trae el objeto desde el principio (su ficha o la primera escena lo muestran como suyo). "gana": el texto de la escena se lo entrega, lo fabrica, lo encuentra o el Sistema se lo da. "pierde": lo pierde, se lo quitan, se rompe o lo deja atrás para siempre. "reemplaza": un objeto nuevo sustituye a uno que ya traía (una mejora, un intercambio): nombra el sustituido en "reemplazaA" y describe el nuevo; el viejo deja de existir.
-- TAMBIÉN llevas el VESTUARIO: lo que cada personaje LLEVA PUESTO. En "vestuario" devuelve UN evento por personaje la primera vez que su ropa queda establecida (su ficha o su primera escena: el atuendo con el que aparece) y UN evento nuevo SOLO cuando el texto de una escena lo viste de otra manera como hecho de la historia (se cambia, le dan ropa nueva, se disfraza, pasa el tiempo y trae otro atuendo). Sin un cambio de la historia NO hay evento nuevo: la ropa no se mueve sola.
-- "descripcion" del vestuario (EN INGLÉS): la prenda y su COLOR exactos, con el detalle que la dibuja siempre igual (corte, largo, material), en una frase completa y concreta. Esa frase se copiará palabra por palabra en los prompts: el color que escribas la primera vez es el color de ese atuendo para toda la serie, salvo un cambio de la historia. Mojada, sucia o rota NO es otro atuendo: es el estado de la misma ropa y no se registra.
+- TAMBIÉN llevas el VESTUARIO: lo que cada personaje LLEVA PUESTO. LA FICHA MANDA: el atuendo base de cada personaje es el que SU FICHA describe (arriba, en PERSONAJES, te doy la descripción de cada uno), copiado fielmente: prenda y color tal como la ficha los escribe. Ese atuendo se registra UNA vez, desde la primera escena en la que el personaje aparece. Para eso están la ficha y su imagen de referencia: la ropa nace de ahí, no del guion.
+- El texto de las escenas NO crea ni cambia el atuendo base: las palabras sueltas de ropa en la narración o los diálogos («su camisa», «la blusa», «la ropa mojada») son solo cómo el texto habla de él, NO un hecho de vestuario, y jamás redefinen lo que el personaje lleva puesto.
+- UN evento nuevo SOLO cuando una escena NARRA como hecho que el personaje se viste de otra manera: se cambia de ropa, le dan o le fabrican ropa nueva, se disfraza, amanece con otro atuendo por la historia. Sin ese hecho narrado NO hay evento nuevo: la ropa no se mueve sola.
+- "descripcion" del vestuario (EN INGLÉS): la prenda y su COLOR exactos, con el detalle que la dibuja siempre igual (corte, largo, material), en una frase completa y concreta. Esa frase se copiará palabra por palabra en los prompts: el color registrado es el color de ese atuendo para toda la serie, salvo un cambio narrado de la historia. Si la ficha no nombra el color, NO lo inventes desde las palabras sueltas del guion: registra la prenda tal como la ficha la describe. Mojada, sucia o rota NO es otro atuendo: es el estado de la misma ropa y no se registra.
 Respondes SOLO JSON válido.`;
 
 export function promptEquipo(datos, escenas, objetos, atuendos = {}) {
@@ -91,7 +93,7 @@ ${vest}
 ESCENAS NUEVAS, en orden:
 ${lista}
 
-Devuelve UN SOLO objeto con los cambios de equipo y los de vestuario que ocurren en ESTAS escenas, en el orden en que ocurren: {"cambios":[{"escena":"${escenas[0].id}","personaje":"c1","accion":"lleva | gana | pierde | reemplaza","objeto":"nombre corto del objeto","descripcion":"exact English visual description (solo en lleva, gana y reemplaza)","reemplazaA":"nombre del objeto sustituido (solo en reemplaza)"}],"vestuario":[{"escena":"${escenas[0].id}","personaje":"c1","descripcion":"exact English outfit description: garment and colour (solo la primera vez de cada personaje y cuando la historia lo cambia de ropa)"}]}
+Devuelve UN SOLO objeto con los cambios de equipo y los de vestuario que ocurren en ESTAS escenas, en el orden en que ocurren: {"cambios":[{"escena":"${escenas[0].id}","personaje":"c1","accion":"lleva | gana | pierde | reemplaza","objeto":"nombre corto del objeto","descripcion":"exact English visual description (solo en lleva, gana y reemplaza)","reemplazaA":"nombre del objeto sustituido (solo en reemplaza)"}],"vestuario":[{"escena":"${escenas[0].id}","personaje":"c1","descripcion":"exact English outfit description: garment and colour (el de su FICHA, la primera vez que aparece; uno nuevo solo cuando una escena narra que se viste de otra manera)"}]}
 Si en una escena nadie gana, pierde ni reemplaza nada, de esa escena no devuelvas nada de "cambios"; si la ropa de nadie se establece ni cambia en estas escenas, "vestuario" va vacío.`,
     temperatura: 0.3,
   };
@@ -183,8 +185,12 @@ export function bloqueVestuario(datos, escenas) {
 
 // Huella del guion de un episodio: si el texto cambia, la memoria de
 // equipo se reconstruye (solo texto; lo caro son las imágenes).
-export function huellaGuion(escenas) {
-  const texto = escenas.map(e => `${e.id}|${e.accion}|${textoEscena(e)}`).join('\n');
+export function huellaGuion(escenas, universo = null) {
+  // Las fichas también alimentan la memoria (el vestuario nace de la
+  // ficha): si una ficha cambia, la huella cambia y la memoria se
+  // reconstruye, igual que si cambia el guion.
+  const fichas = (universo?.personajes || []).map(p => `${p.id}|${p.aspecto || ''}|${p.appearance || ''}`).join('\n');
+  const texto = escenas.map(e => `${e.id}|${e.accion}|${textoEscena(e)}`).join('\n') + '\n==\n' + fichas;
   let h = 0;
   for (let i = 0; i < texto.length; i++) h = (Math.imul(h, 31) + texto.charCodeAt(i)) | 0;
   return `${escenas.length}:${texto.length}:${(h >>> 0).toString(36)}`;
@@ -232,7 +238,7 @@ export async function asegurarEquipo(datos, numero, { control, aviso, guardar } 
   if (!ep) return null;
   const escenas = escenasDelEpisodio(datos, numero);
   if (!escenas.length) return null;
-  const huella = huellaGuion(escenas);
+  const huella = huellaGuion(escenas, datos.universo);
   if (ep.equipo?.huella === huella && ep.equipo?.objetos && ep.vestuario?.huella === huella && ep.vestuario?.atuendos) return ep.equipo;
   aviso?.('Armo la memoria de continuidad: leo el guion en orden y anoto lo que cada personaje trae encima y lo que lleva puesto…');
   const orden = new Map(escenas.map((e, i) => [e.id, i]));
