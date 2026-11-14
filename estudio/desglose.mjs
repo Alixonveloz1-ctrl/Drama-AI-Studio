@@ -62,12 +62,14 @@ const INTENTOS = 3;
 // el guion EN ORDEN —solo texto, lo barato— y viaja con cada llamada de
 // desglose, de corrección de campos y de revisión.
 export const SISTEMA_EQUIPO = `Eres el encargado de la CONTINUIDAD DE EQUIPO de un drama corto. Lees el guion EN ORDEN y llevas la lista de los objetos importantes que cada personaje TRAE ENCIMA: qué gana, qué pierde y qué se transforma, escena por escena.
-- Solo objetos que el personaje lleva consigo o usa con las manos y que pueden volver a aparecer: un arma, una herramienta, una llave, un objeto clave de la historia. NO ropa (va en la ficha del personaje), NO muebles ni cosas del lugar (eso es el inventario del escenario), NO lo que se consume en el momento (una comida que se come), salvo que el texto lo mantenga en su poder.
+- Solo objetos que el personaje lleva consigo o usa con las manos y que pueden volver a aparecer: un arma, una herramienta, una llave, un objeto clave de la historia. NO ropa (la ropa se registra aparte, en "vestuario"), NO muebles ni cosas del lugar (eso es el inventario del escenario), NO lo que se consume en el momento (una comida que se come), salvo que el texto lo mantenga en su poder.
 - "descripcion" (EN INGLÉS): cómo debe dibujarse ese objeto SIEMPRE — material, forma, tamaño y color, en una frase completa y concreta. Esa frase se copiará palabra por palabra en los prompts de imagen: escríbela una sola vez y bien. Si el objeto ya está en la lista que te doy, NO lo registres otra vez ni cambies su descripción.
 - "lleva": el personaje ya trae el objeto desde el principio (su ficha o la primera escena lo muestran como suyo). "gana": el texto de la escena se lo entrega, lo fabrica, lo encuentra o el Sistema se lo da. "pierde": lo pierde, se lo quitan, se rompe o lo deja atrás para siempre. "reemplaza": un objeto nuevo sustituye a uno que ya traía (una mejora, un intercambio): nombra el sustituido en "reemplazaA" y describe el nuevo; el viejo deja de existir.
+- TAMBIÉN llevas el VESTUARIO: lo que cada personaje LLEVA PUESTO. En "vestuario" devuelve UN evento por personaje la primera vez que su ropa queda establecida (su ficha o su primera escena: el atuendo con el que aparece) y UN evento nuevo SOLO cuando el texto de una escena lo viste de otra manera como hecho de la historia (se cambia, le dan ropa nueva, se disfraza, pasa el tiempo y trae otro atuendo). Sin un cambio de la historia NO hay evento nuevo: la ropa no se mueve sola.
+- "descripcion" del vestuario (EN INGLÉS): la prenda y su COLOR exactos, con el detalle que la dibuja siempre igual (corte, largo, material), en una frase completa y concreta. Esa frase se copiará palabra por palabra en los prompts: el color que escribas la primera vez es el color de ese atuendo para toda la serie, salvo un cambio de la historia. Mojada, sucia o rota NO es otro atuendo: es el estado de la misma ropa y no se registra.
 Respondes SOLO JSON válido.`;
 
-export function promptEquipo(datos, escenas, objetos) {
+export function promptEquipo(datos, escenas, objetos, atuendos = {}) {
   const u = datos.universo;
   const nombres = Object.fromEntries(u.personajes.map(p => [p.id, p.nombre]));
   const lista = escenas.map(e => {
@@ -75,6 +77,7 @@ export function promptEquipo(datos, escenas, objetos) {
     return `═══ ESCENA ${e.id} — «${e.titulo}»\nLo que se ve al empezar: ${e.accion}\n${lineas}`;
   }).join('\n\n');
   const actual = formatearEquipo(u, objetos) || 'Nadie trae nada registrado todavía.';
+  const vest = formatearVestuario(u, atuendos) || 'Nadie tiene vestuario registrado todavía.';
   return {
     sistema: SISTEMA_EQUIPO,
     mensaje: `PERSONAJES:\n${u.personajes.map(p => `- ${p.id} = ${p.nombre}: ${p.appearance}`).join('\n')}
@@ -82,11 +85,14 @@ export function promptEquipo(datos, escenas, objetos) {
 EQUIPO REGISTRADO HASTA AHORA (lo que cada personaje ya trae al empezar estas escenas):
 ${actual}
 
+VESTUARIO REGISTRADO HASTA AHORA (lo que cada personaje ya lleva puesto al empezar estas escenas):
+${vest}
+
 ESCENAS NUEVAS, en orden:
 ${lista}
 
-Devuelve SOLO los cambios que ocurren en ESTAS escenas, en el orden en que ocurren: {"cambios":[{"escena":"${escenas[0].id}","personaje":"c1","accion":"lleva | gana | pierde | reemplaza","objeto":"nombre corto del objeto","descripcion":"exact English visual description (solo en lleva, gana y reemplaza)","reemplazaA":"nombre del objeto sustituido (solo en reemplaza)"}]}
-Si en una escena nadie gana, pierde ni reemplaza nada, de esa escena no devuelvas nada.`,
+Devuelve UN SOLO objeto con los cambios de equipo y los de vestuario que ocurren en ESTAS escenas, en el orden en que ocurren: {"cambios":[{"escena":"${escenas[0].id}","personaje":"c1","accion":"lleva | gana | pierde | reemplaza","objeto":"nombre corto del objeto","descripcion":"exact English visual description (solo en lleva, gana y reemplaza)","reemplazaA":"nombre del objeto sustituido (solo en reemplaza)"}],"vestuario":[{"escena":"${escenas[0].id}","personaje":"c1","descripcion":"exact English outfit description: garment and colour (solo la primera vez de cada personaje y cuando la historia lo cambia de ropa)"}]}
+Si en una escena nadie gana, pierde ni reemplaza nada, de esa escena no devuelvas nada de "cambios"; si la ropa de nadie se establece ni cambia en estas escenas, "vestuario" va vacío.`,
     temperatura: 0.3,
   };
 }
@@ -123,6 +129,56 @@ export function bloqueEquipo(datos, escenas) {
   const lista = formatearEquipo(datos.universo, hallado.ep.equipo.objetos, hallado.orden, hastaIdx);
   if (!lista) return '';
   return `\n\nEQUIPO QUE CADA PERSONAJE YA TRAE (memoria de la historia: lo que ganó o lleva desde antes, con su descripción EXACTA en inglés y desde qué escena lo trae):\n${lista}`;
+}
+
+// El vestuario registrado de un personaje a una altura del guion: el
+// último tramo cuyo «desde» no pasa de esa escena.
+function formatearVestuario(u, atuendos, orden = null, hastaIdx = Infinity) {
+  const lineas = [];
+  for (const p of u.personajes) {
+    const tramos = (atuendos?.[p.id] || []).filter(t => !orden || (orden.get(t.desde) ?? Infinity) <= hastaIdx);
+    const vigente = tramos[tramos.length - 1];
+    if (vigente) lineas.push(`- ${p.nombre} (${p.id}) viste: "${vigente.descripcion}" (desde la escena ${vigente.desde})`);
+  }
+  return lineas.join('\n');
+}
+
+// Aplica los eventos de vestuario de una lectura del guion. La ropa de
+// un personaje queda CONGELADA en la descripción registrada (prenda y
+// color): solo un evento nuevo —la historia lo viste de otra manera—
+// abre otro tramo. Lo pidió el dueño el 2026-11-13: el color del
+// vestido de un personaje cambiaba de escena en escena porque cada
+// desglose lo reescribía con palabras distintas y regenerar no lo
+// arreglaba (la imagen obedece al texto).
+export function aplicarCambiosVestuario(atuendos, eventos, orden, universo) {
+  const ids = new Set(universo.personajes.map(p => p.id));
+  const madre = id => (universo.variantes || []).find(v => v.id === id)?.madre || id;
+  const lista = (Array.isArray(eventos) ? [...eventos] : [])
+    .filter(c => c && orden.has(String(c?.escena || '')) && ids.has(madre(String(c?.personaje || ''))))
+    .sort((a, b) => orden.get(String(a.escena)) - orden.get(String(b.escena)));
+  for (const c of lista) {
+    const pid = madre(String(c.personaje));
+    const descripcion = String(c.descripcion || '').replace(/\s+/g, ' ').trim();
+    if (descripcion.length < 20) continue;
+    const tramos = atuendos[pid] ||= [];
+    const ultimo = tramos[tramos.length - 1];
+    if (ultimo && normalizar(ultimo.descripcion) === normalizar(descripcion)) continue;   // el mismo atuendo: no es un cambio
+    tramos.push({ descripcion, desde: String(c.escena) });
+  }
+  return atuendos;
+}
+
+// El bloque de vestuario que acompaña a las llamadas del desglose, de
+// la corrección y de la revisión: el atuendo vigente de cada personaje
+// cuando empieza la ÚLTIMA escena del lote, con su descripción EXACTA.
+export function bloqueVestuario(datos, escenas) {
+  if (!escenas?.length) return '';
+  const hallado = episodioDeEscena(datos, escenas[0].id);
+  if (!hallado?.ep?.vestuario?.atuendos) return '';
+  const hastaIdx = hallado.orden.get(escenas[escenas.length - 1].id) ?? Infinity;
+  const lista = formatearVestuario(datos.universo, hallado.ep.vestuario.atuendos, hallado.orden, hastaIdx);
+  if (!lista) return '';
+  return `\n\nVESTUARIO FIJADO DE CADA PERSONAJE (memoria de la historia: la prenda y el COLOR exactos que lleva cada uno a esta altura, y desde qué escena):\n${lista}`;
 }
 
 // Huella del guion de un episodio: si el texto cambia, la memoria de
@@ -177,26 +233,30 @@ export async function asegurarEquipo(datos, numero, { control, aviso, guardar } 
   const escenas = escenasDelEpisodio(datos, numero);
   if (!escenas.length) return null;
   const huella = huellaGuion(escenas);
-  if (ep.equipo?.huella === huella && ep.equipo?.objetos) return ep.equipo;
-  aviso?.('Armo la memoria de equipo: leo el guion en orden y anoto lo que cada personaje trae encima…');
+  if (ep.equipo?.huella === huella && ep.equipo?.objetos && ep.vestuario?.huella === huella && ep.vestuario?.atuendos) return ep.equipo;
+  aviso?.('Armo la memoria de continuidad: leo el guion en orden y anoto lo que cada personaje trae encima y lo que lleva puesto…');
   const orden = new Map(escenas.map((e, i) => [e.id, i]));
   const objetos = {};
+  const atuendos = {};
   let parcial = false;
   const LOTE = 8;
   for (let i = 0; i < escenas.length; i += LOTE) {
     const lote = escenas.slice(i, i + LOTE);
     let cambios = null;
-    for (let intento = 0; intento < 2 && !cambios; intento++) {
+    let vestuario = null;
+    for (let intento = 0; intento < 2 && cambios === null; intento++) {
       try {
-        const json = parsearJSON(await pedirTexto(promptEquipo(datos, lote, objetos), { control, aviso }));
-        if (Array.isArray(json?.cambios)) cambios = json.cambios;
+        const json = parsearJSON(await pedirTexto(promptEquipo(datos, lote, objetos, atuendos), { control, aviso }));
+        if (Array.isArray(json?.cambios) || Array.isArray(json?.vestuario)) { cambios = json.cambios || []; vestuario = json.vestuario || []; }
       } catch (e) { if (e?.detenido) throw e; }
     }
-    if (!cambios) { parcial = true; continue; }
+    if (cambios === null) { parcial = true; continue; }
     aplicarCambiosEquipo(objetos, cambios, orden, datos.universo);
+    aplicarCambiosVestuario(atuendos, vestuario, orden, datos.universo);
   }
   ep.equipo = { huella, objetos };
-  if (parcial) aviso?.('La memoria de equipo quedó parcial: una parte del guion no se pudo leer; lo anotado sí viaja con el desglose.');
+  ep.vestuario = { huella, atuendos };
+  if (parcial) aviso?.('La memoria de continuidad quedó parcial: una parte del guion no se pudo leer; lo anotado sí viaja con el desglose.');
   await guardar?.();
   return ep.equipo;
 }
@@ -324,6 +384,11 @@ EQUIPO DE LOS PERSONAJES (memoria de la historia): cada personaje trae objetos q
 - PROHIBIDO inventar armas, herramientas u objetos importantes que no estén en el equipo del personaje, ni en el inventario del lugar, ni los entregue el texto de ESTA escena. Nada de versiones improvisadas de lo que el personaje ya tiene en su forma establecida.
 - Si el texto de ESTA escena entrega algo nuevo a un personaje, descríbelo completo la primera vez que aparece y mantenlo idéntico en los planos siguientes de la escena.
 
+VESTUARIO DE LOS PERSONAJES (memoria de la historia): el mensaje lista el VESTUARIO FIJADO de cada personaje: la prenda y el color EXACTOS que lleva a esta altura y desde qué escena.
+- Copia esa descripción PALABRA POR PALABRA en la media frase de identidad y donde el "estado" nombre su ropa: es el MISMO atuendo en toda la serie; jamás parafrasees el color ni lo sustituyas por un sinónimo o un tono vecino.
+- La ropa SOLO se aparta del vestuario fijado cuando el texto de ESTA escena viste al personaje de otra manera como hecho de la historia (se cambia, le dan ropa nueva, un disfraz): entonces describe ese atuendo nuevo completo y con la misma exactitud, y mantenlo idéntico en los planos siguientes de la escena.
+- Mojada, sucia, rota o desordenada es el ESTADO de la misma ropa: va en "estado" como estado, sin tocar la descripción del atuendo.
+
 LITERALIDAD: una figura sobre un sentimiento («le hervía la sangre») se filma como gesto o postura, nunca como efecto especial.
 
 CADA "prompt" (EN INGLÉS):
@@ -342,7 +407,7 @@ export function promptDesglose(datos, escenas, extra = '') {
     sistema: SISTEMA_FOTOGRAFIA,
     mensaje: `${contextoEleccion(datos.formulario)}
 
-${fichaVisual(u)}${bloqueEquipo(datos, escenas)}
+${fichaVisual(u)}${bloqueEquipo(datos, escenas)}${bloqueVestuario(datos, escenas)}
 
 DIRECCIÓN VISUAL DE LA SERIE: ${datos.biblia?.direccionVisual || ''}
 ASPECTO DEL GÉNERO Y DE CADA SUBGÉNERO (obligatorio en los prompts; todos a la vez): ${direccionDeAspecto(datos.formulario)}
@@ -505,7 +570,7 @@ export const SISTEMA_ARTE = `Eres el DIRECTOR DE ARTE y de continuidad. Lees pro
 CONTINUIDAD DE PLANO A PLANO (lo que más se rompe): alguien que desaparece sin haber salido o aparece sin haber entrado; alguien que cambia de sitio sin que el texto lo mueva (estaba en la mesa y salta a la cama); un objeto que se esfuma (un cuenco roto que ya no está en el suelo); un plano que repite la postura del anterior cuando su ancla dice que ocurre una acción (cae, se levanta, empuja); dos personas que tienen que tocarse y no están a su alcance.
 No cambias la historia ni el encuadre que funciona. Solo corriges lo que está mal, y explicas por qué.
 
-EQUIPO DE LOS PERSONAJES: el mensaje trae la memoria de equipo — lo que cada personaje ya trae, con su descripción EXACTA y desde qué escena lo trae. Un prompt que dibuja uno de esos objetos como otra cosa (otra forma, otro material, una versión improvisada de palo) ES UN FALLO: corrígelo copiando la descripción exacta del objeto en el prompt (y en el estado, si ahí también sale cambiado). La palabra suelta del diálogo («arpón») nunca manda sobre el objeto establecido.
+EQUIPO DE LOS PERSONAJES: el mensaje trae la memoria de equipo — lo que cada personaje ya trae, con su descripción EXACTA y desde qué escena lo trae. Un prompt que dibuja uno de esos objetos como otra cosa (otra forma, otro material, una versión improvisada de palo) ES UN FALLO: corrígelo copiando la descripción exacta del objeto en el prompt (y en el estado, si ahí también sale cambiado). La palabra suelta del diálogo («arpón») nunca manda sobre el objeto establecido. VESTUARIO: el mensaje trae también el VESTUARIO FIJADO de cada personaje (prenda y color exactos, y desde qué escena). Un prompt que lo vista con otra prenda u OTRO COLOR sin que el texto de la escena lo justifique como cambio de la historia ES UN FALLO: corrígelo copiando la descripción fijada en el prompt (y en el estado, si ahí también sale cambiado).
 Y si un plano necesita un objeto que no está NI en el equipo del personaje NI en el inventario del lugar NI lo entrega el texto de la escena, NO lo corrijas inventándolo y NO lo des por bueno con una explicación: añádelo a tu JSON en un array "avisos", junto a "correcciones", con la misma forma ({"escena","plano","motivo"}), diciendo qué objeto falta y por qué no se puede resolver sin el dueño. Un aviso no lleva prompt ni estado: el dueño decide.
 Respondes SOLO JSON válido.`;
 
@@ -515,7 +580,7 @@ export function promptRevision(datos, escenas) {
   const lista = escenas.map(e => `═══ ESCENA ${e.id} — escenario ${e.escenario} — presentes al empezar: ${nombres(e.presentes)}\nLo que se ve al empezar: ${e.accion}\nTexto: ${textoEscena(e)}\n${(e.planos || []).map((p, i) => `Plano ${i + 1} (${p.tipo}, ${NOMBRE_ENCUADRE[p.encuadre] || 'sin encuadre'}) ancla «${p.ancla}» · se ve: ${nombres(p.personajes)}${p.entran?.length ? ' · entran: ' + nombres(p.entran) : ''}${p.salen?.length ? ' · salen: ' + nombres(p.salen) : ''}\n  Estado: ${p.estado || '—'}\n  Cambio: ${p.cambio || '—'}\n  Prompt: ${p.prompt}`).join('\n')}`).join('\n\n');
   return {
     sistema: SISTEMA_ARTE,
-    mensaje: `${fichaVisual(u)}${bloqueEquipo(datos, escenas)}
+    mensaje: `${fichaVisual(u)}${bloqueEquipo(datos, escenas)}${bloqueVestuario(datos, escenas)}
 
 ${lista}
 
@@ -553,7 +618,7 @@ export function fallosDeCampo(problemas) {
 
 export const SISTEMA_CORRECTOR = `Eres el CORRECTOR DE CONTINUIDAD de un drama corto asiático. Te doy un desglose de planos YA HECHO y SOLO los planos que el revisor automático señaló, cada uno con el motivo exacto del señalamiento. Tu trabajo es reescribir ÚNICAMENTE los campos señalados de esos planos, completos y en inglés, respetando el texto de la escena, la posición de cada persona en ese instante y la continuidad con el plano anterior. No tocas ningún otro plano, no cambias la historia y no acortas nada: el campo corregido lleva TODO el detalle que debía llevar.
 
-Si el campo que corriges nombra un objeto del equipo de un personaje (el mensaje trae la memoria de equipo, con la descripción exacta de cada objeto), copia esa descripción EXACTA, palabra por palabra: jamás sustituyas un objeto establecido por una versión inventada o improvisada.
+Si el campo que corriges nombra un objeto del equipo de un personaje (el mensaje trae la memoria de equipo, con la descripción exacta de cada objeto), copia esa descripción EXACTA, palabra por palabra: jamás sustituyas un objeto establecido por una versión inventada o improvisada. Y si el campo que corriges nombra la ropa de un personaje (el mensaje trae su VESTUARIO FIJADO: prenda y color exactos), cópiala también palabra por palabra: el color registrado es el único color de ese atuendo, no lo parafrasees ni lo cambies de tono.
 Respondes SOLO JSON válido.`;
 
 export function promptCorreccion(datos, escenas, candidato, fallos) {
@@ -586,7 +651,7 @@ ${detalle}`;
     sistema: SISTEMA_CORRECTOR,
     mensaje: `CORRECCIÓN DIRIGIDA de campos sueltos de un desglose ya hecho. No reescribas el desglose: corrige SOLO lo señalado.
 
-${fichaVisual(u)}${bloqueEquipo(datos, escenas)}
+${fichaVisual(u)}${bloqueEquipo(datos, escenas)}${bloqueVestuario(datos, escenas)}
 
 ${bloques}
 
