@@ -359,6 +359,15 @@ test('vestuario: el bloque da el atuendo vigente a la altura del lote y viaja en
   assert.match(D.promptRevision(datos, [e2]).mensaje, /VESTUARIO FIJADO/);
 });
 
+test('vestuario: la ficha manda en el lector y un cambio de ficha reconstruye la memoria', () => {
+  assert.match(D.SISTEMA_EQUIPO, /LA FICHA MANDA/, 'el lector toma el atuendo base de la ficha, no de las palabras sueltas del guion');
+  const e = escenaDePrueba();
+  const u = universoValido();
+  const u2 = { ...u, personajes: u.personajes.map((p, i) => i === 0 ? { ...p, appearance: p.appearance + ' Wears a blue dress.' } : p) };
+  assert.notEqual(D.huellaGuion([e], u), D.huellaGuion([e], u2), 'si la ficha cambia, la huella cambia y la memoria se reconstruye');
+  assert.equal(D.huellaGuion([e], u), D.huellaGuion([e], u), 'la huella con fichas es estable');
+});
+
 test('redesglose: el plano que conserva su ancla hereda su imagen; si el prompt cambió, la heredada queda obsoleta', () => {
   const viejos = [
     { ancla: 'Uno dos tres', prompt: 'Scene with Lin Feng: prompt igual de largo que el nuevo, palabra por palabra.', imagen: { ruta: 'a' }, video: { ruta: 'va' } },
@@ -430,7 +439,7 @@ test('desglose: si una escena sola se pasa de tiempo, se parte en dos llamadas c
   // La primera parte trae 7 planos y la escena admite 13 en total: la
   // segunda parte trae 6, como manda su objetivo.
   parte2.escenas[0].planos = parte2.escenas[0].planos.slice(0, 6);
-  const datos = { formulario, universo: u, biblia: {}, episodios: { 1: { bloques: [{ escenas: [e] }], equipo: { huella: D.huellaGuion([e]), objetos: {} }, vestuario: { huella: D.huellaGuion([e]), atuendos: {} } } } };
+  const datos = { formulario, universo: u, biblia: {}, episodios: { 1: { bloques: [{ escenas: [e] }], equipo: { huella: D.huellaGuion([e], u), objetos: {} }, vestuario: { huella: D.huellaGuion([e], u), atuendos: {} } } } };
   respuestas = [
     { estado: 504, cuerpo: { error: 'Google tardó más de 50 s', tipo: 'tiempo' } },
     { estado: 504, cuerpo: { error: 'Google tardó más de 50 s', tipo: 'tiempo' } },
@@ -453,7 +462,7 @@ test('desglose: un fallo solo de un campo se corrige sin reescribir el desglose 
   const roto = desgloseValido(e);
   // El estado del plano 6 olvida a Wang Hu: fallo de UN campo.
   roto.escenas[0].planos[5].estado = 'Lin Feng kneels alone in the courtyard, breathing hard and looking down at the floor.';
-  const datos = { formulario, universo: u, biblia: {}, episodios: { 1: { bloques: [{ escenas: [e] }], equipo: { huella: D.huellaGuion([e]), objetos: {} }, vestuario: { huella: D.huellaGuion([e]), atuendos: {} } } } };
+  const datos = { formulario, universo: u, biblia: {}, episodios: { 1: { bloques: [{ escenas: [e] }], equipo: { huella: D.huellaGuion([e], u), objetos: {} }, vestuario: { huella: D.huellaGuion([e], u), atuendos: {} } } } };
   respuestas = [
     texto(roto),
     texto({ correcciones: [{ escena: 'e1', plano: 6, estado: 'Lin Feng kneels on the stone floor of the courtyard; Wang Hu stands over him, two steps away.' }] }),
