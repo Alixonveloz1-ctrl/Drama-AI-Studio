@@ -326,6 +326,39 @@ test('equipo: el bloque viaja en el desglose y en la revisión, solo con lo que 
   assert.equal(D.huellaGuion([e1]), D.huellaGuion([e1]), 'la huella es estable');
 });
 
+test('vestuario: la memoria congela prenda y color, y solo cambia cuando el guion cambia la ropa', () => {
+  const u = universoValido();
+  const orden = new Map([['e1', 0], ['e2', 1], ['e3', 2], ['e4', 3]]);
+  const atuendos = {};
+  D.aplicarCambiosVestuario(atuendos, [
+    { escena: 'e1', personaje: 'c2', descripcion: 'a deep navy-blue sleeveless midi dress with a side slit and thin straps' },
+    { escena: 'e2', personaje: 'c2', descripcion: 'a deep navy-blue sleeveless midi dress with a side slit and thin straps' },
+    { escena: 'e3', personaje: 'c2', descripcion: 'corta' },
+    { escena: 'e4', personaje: 'c2', descripcion: 'a plain white cotton tunic dress with long sleeves, given to her by the crew' },
+    { escena: 'e9', personaje: 'c2', descripcion: 'a red evening gown with sequins all over the bodice and skirt' },
+  ], orden, u);
+  assert.equal(atuendos.c2.length, 2, 'solo dos tramos: el atuendo de siempre y el cambio de la historia; el repetido no duplica, el corto no registra y el de la escena e9 no existe en el orden');
+  assert.equal(atuendos.c2[0].desde, 'e1');
+  assert.equal(atuendos.c2[1].desde, 'e4');
+});
+
+test('vestuario: el bloque da el atuendo vigente a la altura del lote y viaja en el desglose y en la revisión', () => {
+  const e1 = { ...escenaDePrueba(), id: 'e1' };
+  const e2 = { ...escenaDePrueba(), id: 'e2' };
+  const e4 = { ...escenaDePrueba(), id: 'e4' };
+  const datos = { formulario, universo: universoValido(), biblia: { direccionVisual: 'ocre' },
+    episodios: { 1: { bloques: [{ escenas: [e1, e2, e4] }], vestuario: { huella: 'x', atuendos: { c2: [
+      { descripcion: 'a deep navy-blue sleeveless midi dress with a side slit and thin straps', desde: 'e1' },
+      { descripcion: 'a plain white cotton tunic dress with long sleeves, given to her by the crew', desde: 'e4' },
+    ] } } } } };
+  assert.match(D.bloqueVestuario(datos, [e2]), /navy-blue/, 'antes del cambio manda el atuendo de siempre');
+  assert.doesNotMatch(D.bloqueVestuario(datos, [e2]), /white cotton/, 'el cambio de la historia aún no existe a esta altura');
+  assert.match(D.bloqueVestuario(datos, [e4]), /white cotton/, 'desde la escena del cambio manda el atuendo nuevo');
+  assert.match(D.promptDesglose(datos, [e2]).mensaje, /VESTUARIO FIJADO[\s\S]*navy-blue/);
+  e2.planos = [];
+  assert.match(D.promptRevision(datos, [e2]).mensaje, /VESTUARIO FIJADO/);
+});
+
 test('redesglose: el plano que conserva su ancla hereda su imagen; si el prompt cambió, la heredada queda obsoleta', () => {
   const viejos = [
     { ancla: 'Uno dos tres', prompt: 'Scene with Lin Feng: prompt igual de largo que el nuevo, palabra por palabra.', imagen: { ruta: 'a' }, video: { ruta: 'va' } },
@@ -397,7 +430,7 @@ test('desglose: si una escena sola se pasa de tiempo, se parte en dos llamadas c
   // La primera parte trae 7 planos y la escena admite 13 en total: la
   // segunda parte trae 6, como manda su objetivo.
   parte2.escenas[0].planos = parte2.escenas[0].planos.slice(0, 6);
-  const datos = { formulario, universo: u, biblia: {}, episodios: { 1: { bloques: [{ escenas: [e] }], equipo: { huella: D.huellaGuion([e]), objetos: {} } } } };
+  const datos = { formulario, universo: u, biblia: {}, episodios: { 1: { bloques: [{ escenas: [e] }], equipo: { huella: D.huellaGuion([e]), objetos: {} }, vestuario: { huella: D.huellaGuion([e]), atuendos: {} } } } };
   respuestas = [
     { estado: 504, cuerpo: { error: 'Google tardó más de 50 s', tipo: 'tiempo' } },
     { estado: 504, cuerpo: { error: 'Google tardó más de 50 s', tipo: 'tiempo' } },
@@ -420,7 +453,7 @@ test('desglose: un fallo solo de un campo se corrige sin reescribir el desglose 
   const roto = desgloseValido(e);
   // El estado del plano 6 olvida a Wang Hu: fallo de UN campo.
   roto.escenas[0].planos[5].estado = 'Lin Feng kneels alone in the courtyard, breathing hard and looking down at the floor.';
-  const datos = { formulario, universo: u, biblia: {}, episodios: { 1: { bloques: [{ escenas: [e] }], equipo: { huella: D.huellaGuion([e]), objetos: {} } } } };
+  const datos = { formulario, universo: u, biblia: {}, episodios: { 1: { bloques: [{ escenas: [e] }], equipo: { huella: D.huellaGuion([e]), objetos: {} }, vestuario: { huella: D.huellaGuion([e]), atuendos: {} } } } };
   respuestas = [
     texto(roto),
     texto({ correcciones: [{ escena: 'e1', plano: 6, estado: 'Lin Feng kneels on the stone floor of the courtyard; Wang Hu stands over him, two steps away.' }] }),
