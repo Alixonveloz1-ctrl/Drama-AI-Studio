@@ -1,0 +1,17 @@
+# Lo que NO entra en la imagen: solo viaja la superficie que el
+# Dockerfile copia (servidor, portada, entrar/, estudio/, api/, comun/).
+.git
+.github
+.vercel
+docs
+instalador
+montador
+pruebas
+node_modules
+*.md
+vercel.json
+migrar-nube.sh
+.env*
+.gitignore
+.gcloudignore
+.dockerignore
