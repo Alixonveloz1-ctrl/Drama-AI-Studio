@@ -571,9 +571,23 @@ export function validarDesglose(json, escenas, universo) {
       for (const id of p.entran) { actual.add(id); algunaVez.add(id); }
       p.presentes = [...actual];
       for (const id of p.personajes) if (!actual.has(id)) problemas.push(`${nombreDe(universo, id)} aparece en ${donde(i)} sin estar en la escena (debe estar en "presentes" o entrar en "entran")`);
+      // Reparación mecánica, sin IA: un plano general muestra a
+      // TODOS los presentes, así que si la lista del director olvida a
+      // alguien que está en la escena y hay sitio (el máximo de fichas
+      // que el servidor adjunta a una imagen), la lista se completa
+      // sola. Antes ese olvido era un fallo estructural: anulaba la
+      // corrección por campos de TODO el lote y obligaba a rehacer las
+      // escenas enteras (visto en vivo: dos horas atascado en las
+      // últimas escenas de un episodio por un nombre que faltaba).
+      if (p.encuadre === 'general') {
+        for (const id of p.presentes) {
+          if (p.personajes.length >= MAX_VISIBLES) break;
+          if (!p.personajes.includes(id)) p.personajes.push(id);
+        }
+      }
       const fuera = p.presentes.filter(id => !p.personajes.includes(id));
       if (p.encuadre === 'general' && fuera.length && p.personajes.length < MAX_VISIBLES) problemas.push(`${donde(i)} es general y deja fuera a ${fuera.map(id => nombreDe(universo, id)).join(', ')}, que está en la escena; un plano general muestra a todos`);
-      if (i === 0 && presentes.length >= 2 && p.encuadre !== 'general') problemas.push(`la escena ${escena.id} empieza con dos o más personas y su primer plano tiene que ser general, con todas en su sitio`);
+      if (i === 0 && presentes.length >= 2 && p.encuadre !== 'general') problemas.push(`el plano 1 de la escena ${escena.id} tiene que ser general, con todas en su sitio: la escena empieza con dos o más personas`);
       const estado = normalizar(p.estado);
       if (p.estado.length < 20) problemas.push(`${donde(i)} no describe en "estado" dónde está cada persona presente`);
       else {
@@ -642,6 +656,7 @@ const RE_CAMPO = [
   { campo: 'prompt', re: /^el plano (\d+) de la escena (\S+) no tiene un prompt suficiente/ },
   { campo: 'movimiento', re: /^el plano de acción (\d+) de la escena (\S+) no dice qué movimiento/ },
   { campo: 'encuadre', re: /^el plano (\d+) de la escena (\S+) no dice su encuadre/ },
+  { campo: 'encuadre', re: /^el plano (\d+) de la escena (\S+) tiene que ser general/ },
 ];
 
 // Clasifica los problemas de una validación: devuelve null si hay alguno
@@ -695,7 +710,7 @@ ${fichaVisual(u)}${bloqueEquipo(datos, escenas)}${bloqueVestuario(datos, escenas
 
 ${bloques}
 
-Devuelve JSON: {"correcciones":[{"escena":"${fallos[0].escena}","plano":1,"ancla":"ancla corregida (solo si se señaló que parte una frase: las frases COMPLETAS de su línea que cubren el fragmento señalado, copiadas literalmente de la línea, ni una palabra más ni una menos; si no se señaló, vacío)","estado":"estado corregido completo en inglés (solo si el campo señalado es el estado; si no, vacío)","cambio":"cambio corregido completo en inglés (solo si se señaló; si no, vacío)","prompt":"prompt corregido completo en inglés (solo si se señaló; si no, vacío)","movimiento":"movimiento corregido en inglés (solo en planos de acción y solo si se señaló; si no, vacío)","encuadre":"general | medio | primer_plano | detalle (solo si se señaló; si no, vacío)"}]}
+Devuelve JSON: {"correcciones":[{"escena":"${fallos[0].escena}","plano":1,"ancla":"ancla corregida (solo si se señaló que parte una frase: las frases COMPLETAS de su línea que cubren el fragmento señalado, copiadas literalmente de la línea, ni una palabra más ni una menos; si no se señaló, vacío)","estado":"estado corregido completo en inglés (solo si el campo señalado es el estado; si no, vacío)","cambio":"cambio corregido completo en inglés (solo si se señaló; si no, vacío)","prompt":"prompt corregido completo en inglés (solo si se señaló el prompt, o si cambiaste el encuadre y el texto debe ajustarse a ese encuadre; si no, vacío)","movimiento":"movimiento corregido en inglés (solo en planos de acción y solo si se señaló; si no, vacío)","encuadre":"general | medio | primer_plano | detalle (solo si se señaló el encuadre; si no, vacío)"}]}
 Una corrección por plano señalado, con su número de plano. Los campos no señalados van vacíos y NO se tocan.`,
     temperatura: 0.3,
   };
