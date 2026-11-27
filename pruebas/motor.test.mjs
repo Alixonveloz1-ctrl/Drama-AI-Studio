@@ -449,6 +449,65 @@ test('proporción: el REDESGLOSE de un corte guardado con la proporción baja no
   assert.ok(e.planos.every(p => p.imagen?.ruta), 'y hereda todas sus imágenes pagadas');
 });
 
+test('reparación mecánica: un plano general que olvida a un presente se completa solo, sin rehacer nada', () => {
+  const u = universoValido();
+  const e = escenaDePrueba();
+  const candidato = desgloseValido(e);
+  candidato.escenas[0].planos[0].personajes = ['c1'];
+  const r = D.validarDesglose(candidato, [e], u);
+  assert.ok(!r.problemas.some(p => p.includes('deja fuera')), 'ya no es un problema: ' + r.problemas.join('; '));
+  assert.deepEqual(new Set(r.resultado.e1[0].personajes), new Set(['c1', 'c2']), 'la lista del general queda completa con los presentes');
+});
+
+test('reparación puntual: «el primer plano tiene que ser general» se clasifica como fallo de campo (encuadre)', () => {
+  const u = universoValido();
+  const e = escenaDePrueba();
+  const candidato = desgloseValido(e);
+  candidato.escenas[0].planos[0].encuadre = 'medio';
+  const r = D.validarDesglose(candidato, [e], u);
+  const fallos = D.fallosDeCampo(r.problemas);
+  assert.ok(fallos, 'no debe anular la corrección por campos: ' + r.problemas.join('; '));
+  assert.ok(fallos.some(f => f.campo === 'encuadre' && f.plano === 1), 'el fallo señala el encuadre del plano 1');
+});
+
+test('desglose: un general incompleto y un ancla partida se reparan sin rehacer la escena', async () => {
+  const u = universoValido();
+  u.escenarios.forEach(x => { x.ficha = x.ficha || 'Exterior. Stone courtyard, wooden gate on the left, well on the right, dawn light.'; });
+  const e = escenaDePrueba();
+  const datos = { formulario, universo: u, biblia: {}, episodios: { 1: { bloques: [{ escenas: [e] }], equipo: { huella: D.huellaGuion([e], u), objetos: {} }, vestuario: { huella: D.huellaGuion([e], u), atuendos: {} } } } };
+  const candidato = desgloseValido(e);
+  candidato.escenas[0].planos[0].personajes = ['c1'];
+  candidato.escenas[0].planos[2].ancla = 'Hoy pagas la deuda';
+  const base = llamadas.length;
+  respuestas = [
+    texto(candidato),
+    texto({ correcciones: [{ escena: 'e1', plano: 3, ancla: 'Hoy pagas la deuda de tu padre.' }] }),
+    texto({ revisadas: ['e1'], correcciones: [] }),
+  ];
+  await D.desglosar(datos, 1, { guardar: async () => {} });
+  assert.ok(e.planos[0].personajes.includes('c2'), 'el general quedó con todos los presentes');
+  assert.equal(e.planos[2].ancla, 'Hoy pagas la deuda de tu padre.', 'el ancla partida quedó completa');
+  assert.equal(llamadas.length - base, 3, 'una llamada del director, una del corrector y la revisión: ninguna escena se rehízo');
+});
+
+test('desglose: si la escena empieza entre varios y el primer plano no es general, el corrector cambia solo su encuadre', async () => {
+  const u = universoValido();
+  u.escenarios.forEach(x => { x.ficha = x.ficha || 'Exterior. Stone courtyard, wooden gate on the left, well on the right, dawn light.'; });
+  const e = escenaDePrueba();
+  const datos = { formulario, universo: u, biblia: {}, episodios: { 1: { bloques: [{ escenas: [e] }], equipo: { huella: D.huellaGuion([e], u), objetos: {} }, vestuario: { huella: D.huellaGuion([e], u), atuendos: {} } } } };
+  const candidato = desgloseValido(e);
+  candidato.escenas[0].planos[0].encuadre = 'medio';
+  const base = llamadas.length;
+  respuestas = [
+    texto(candidato),
+    texto({ correcciones: [{ escena: 'e1', plano: 1, encuadre: 'general' }] }),
+    texto({ revisadas: ['e1'], correcciones: [] }),
+  ];
+  await D.desglosar(datos, 1, { guardar: async () => {} });
+  assert.equal(e.planos[0].encuadre, 'general', 'el primer plano quedó general');
+  assert.equal(llamadas.length - base, 3, 'sin rehacer la escena: director, corrector y revisión');
+});
+
 test('redesglose: el plano que conserva su ancla hereda su imagen; si el prompt cambió, la heredada queda obsoleta', () => {
   const viejos = [
     { ancla: 'Uno dos tres', prompt: 'Scene with Lin Feng: prompt igual de largo que el nuevo, palabra por palabra.', imagen: { ruta: 'a' }, video: { ruta: 'va' } },
@@ -717,8 +776,7 @@ test('continuidad de escena: nadie aparece ni desaparece por arte de magia y cad
   const casos = [
     [j => { j.escenas[0].presentes = ['c1']; }, 'sin estar en la escena'],
     [j => { j.escenas[0].presentes = ['c1']; j.escenas[0].planos[0].personajes = ['c1']; }, 'habla Wang Hu pero no está'],
-    [j => { j.escenas[0].planos[0].personajes = ['c1']; }, 'deja fuera a Wang Hu'],
-    [j => { j.escenas[0].planos[0].encuadre = 'medio'; }, 'primer plano tiene que ser general'],
+    [j => { j.escenas[0].planos[0].encuadre = 'medio'; }, 'tiene que ser general'],
     [j => { j.escenas[0].planos[2].estado = 'Lin Feng kneels on the floor, head down, breathing hard.'; }, 'no dice dónde está Wang Hu'],
     [j => { j.escenas[0].planos[3].cambio = ''; }, 'no dice en "cambio"'],
     [j => { j.escenas[0].planos[1].encuadre = 'cualquiera'; }, 'no dice su encuadre'],
