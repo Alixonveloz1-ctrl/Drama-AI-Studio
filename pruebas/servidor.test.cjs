@@ -1035,6 +1035,28 @@ test('hoja de montaje: el guion lo escribe el servidor, es bash válido y ningú
   const rutaZipPiezas = path.join(require('node:os').tmpdir(), 'montar-zip-piezas-prueba.sh');
   fs.writeFileSync(rutaZipPiezas, zipPiezasHecho.script);
   assert.equal(require('node:child_process').spawnSync('bash', ['-n', rutaZipPiezas]).status, 0, 'el guion del ZIP de piezas es un shell válido');
+  // ZIP con TRAMOS (la forma actual): los tramos van enteros, tal como
+  // se generaron; el voces.wav los une con sus pausas naturales y cada
+  // diálogo se corta por las pausas reales del audio (silencedetect),
+  // sin loudnorm, sin recorte por volumen y sin cortes por los tiempos
+  // estimados de la transcripción, que se comían los finales suaves.
+  const zipTramos = hojaLib.validar('pimagen0001', { modo: 'zip', episodio: 2,
+    archivos: [{ ruta: base + 'plano-e1-2.png', nombre: 'imagenes/toma-001.png' }],
+    textos: [{ nombre: 'guion.txt', contenido: 'x' }],
+    voces: [{ ruta: base + 'voz-e1-1.wav', lineas: [{ inicio: 0.1, fin: 1.9 }, { inicio: 2.5, fin: 4 }] }],
+    dialogos: [{ nombre: 'dialogos/dialogo-001.wav', tramo: 0, linea: 0 }, { nombre: 'dialogos/dialogo-002.wav', tramo: 0, linea: 1 }] });
+  const zipTramosHecho = hojaLib.construir(zipTramos, { bucket: 'b', carpeta: 'c' });
+  assert.ok(!/loudnorm/.test(zipTramosHecho.script), 'las voces del ZIP no se normalizan: llegan como se generaron');
+  assert.ok(!/silenceremove/.test(zipTramosHecho.script), 'ni se recortan por volumen');
+  assert.match(zipTramosHecho.script, /silencedetect/, 'los diálogos se cortan buscando las pausas reales del audio');
+  assert.match(zipTramosHecho.script, /-f concat -safe 0 -i lista-voces\.txt -c copy material\/voces\.wav/, 'los tramos enteros se unen en un solo voces.wav');
+  assert.match(zipTramosHecho.script, /material\/dialogos\/dialogo-002\.wav/, 'cada diálogo sale como archivo suelto en la carpeta de diálogos');
+  assert.equal(zipTramosHecho.descargas.filter(([, d]) => d === 'a/v0001.wav').length, 1, 'cada tramo se descarga una sola vez');
+  assert.throws(() => hojaLib.validar('pimagen0001', { modo: 'zip', episodio: 1, archivos: [{ ruta: base + 'a.png', nombre: 'imagenes/toma-001.png' }], textos: [], voces: [{ ruta: base + 'v.wav', lineas: [{ inicio: 0, fin: 1 }] }], dialogos: [{ nombre: 'dialogos/dialogo-001.wav', tramo: 0, linea: 1 }] }), 'un diálogo que apunta a una línea que no existe se rechaza');
+  assert.throws(() => hojaLib.validar('pimagen0001', { modo: 'zip', episodio: 1, archivos: [{ ruta: base + 'a.png', nombre: 'imagenes/toma-001.png' }], textos: [], voces: [{ ruta: base + 'v.wav', lineas: [{ inicio: 2, fin: 1 }] }] }), 'una línea del tramo sin duración se rechaza');
+  const rutaZipTramos = path.join(require('node:os').tmpdir(), 'montar-zip-tramos-prueba.sh');
+  fs.writeFileSync(rutaZipTramos, zipTramosHecho.script);
+  assert.equal(require('node:child_process').spawnSync('bash', ['-n', rutaZipTramos]).status, 0, 'el guion del ZIP de tramos es un shell válido');
   assert.throws(() => hojaLib.validar('pimagen0001', { modo: 'zip', episodio: 1, archivos: [{ ruta: base + 'a.png', nombre: '../../etc/passwd' }] }));
 });
 

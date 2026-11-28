@@ -1114,19 +1114,22 @@ test('montaje: cada escena dura su narración, los planos sin ancla se reparten 
   assert.ok(zip.textos.some(t => t.nombre === 'guia.txt' && /Toma 001/.test(t.contenido)));
   assert.ok(zip.textos.some(t => t.nombre === 'subtitulos.srt' && /Hola\./.test(t.contenido)), 'el SRT va siempre en el paquete, para CapCut');
   assert.ok(!zip.archivos.some(a => a.nombre.startsWith('voces/')), 'las voces sueltas no van en el ZIP');
-  // Las voces van como PIEZAS para un solo audio CONTINUO: sin tiempos
-  // por palabra, cada línea es una pieza con su corte dentro del tramo.
-  assert.equal(zip.voces.length, 2, 'las voces van como piezas para un solo audio continuo');
-  assert.deepEqual(zip.voces[0], { ruta: 'r/v1.wav', desde: 0.1, hasta: 1.9 });
-  // Diálogos sueltos por línea, apuntando a su rango de piezas: el
-  // servidor los arma uniendo las mismas piezas del audio continuo.
+  // Las voces van como TRAMOS ENTEROS, tal como se generaron, para un
+  // solo voces.wav con sus pausas naturales: cada tramo lleva la franja
+  // aproximada de sus líneas, sin partir nada por los tiempos.
+  assert.equal(zip.voces.length, 2, 'las voces van como tramos enteros para un solo voces.wav');
+  assert.deepEqual(zip.voces[0], { ruta: 'r/v1.wav', lineas: [{ inicio: 0.1, fin: 1.9 }] });
+  assert.deepEqual(zip.voces[1], { ruta: 'r/v2.wav', lineas: [{ inicio: 0, fin: 1 }] });
+  // Diálogos sueltos por línea, apuntando a su tramo y a su línea: el
+  // servidor los corta a mitad de la pausa real entre líneas.
   assert.equal(zip.dialogos.length, 2);
-  assert.deepEqual(zip.dialogos[0], { nombre: 'dialogos/dialogo-001.wav', piezas: [0, 0] });
+  assert.deepEqual(zip.dialogos[0], { nombre: 'dialogos/dialogo-001.wav', tramo: 0, linea: 0 });
+  assert.deepEqual(zip.dialogos[1], { nombre: 'dialogos/dialogo-002.wav', tramo: 1, linea: 0 });
   assert.equal(zip.dialogos[1].nombre, 'dialogos/dialogo-002.wav');
   assert.ok(zip.textos.some(t => t.nombre === 'guia.txt' && /Diálogo 001 — Lin Feng/.test(t.contenido) && /Diálogo 002 — Sistema/.test(t.contenido)), 'la guía lista los diálogos con su archivo');
 });
 
-test('montaje: el audio continuo parte cada línea por sus pausas internas (piezas)', () => {
+test('montaje: piezasDeLinea parte por pausas (función conservada) y el ZIP ya no la usa: lleva el tramo entero', () => {
   // Palabras con una pausa de 1,1 s en medio: la línea se parte en dos
   // piezas y cada borde conserva solo BORDE_PIEZA de la pausa.
   const palabras = [
@@ -1140,16 +1143,18 @@ test('montaje: el audio continuo parte cada línea por sus pausas internas (piez
   // Sin pausa larga, una sola pieza; sin palabras, la línea entera.
   assert.equal(MO.piezasDeLinea([{ inicio: 0.2, fin: 0.8 }, { inicio: 0.9, fin: 1.5 }], 0, 2).length, 1);
   assert.deepEqual(MO.piezasDeLinea([], 0.5, 2), [{ desde: 0.5, hasta: 2 }]);
-  // En la hoja del ZIP, una línea con pausa interna aporta DOS piezas y
-  // su diálogo suelto apunta a las dos.
+  // En la hoja del ZIP, una línea con pausa interna va ENTERA en su
+  // tramo (la pausa queda intacta dentro del diálogo) y su diálogo
+  // suelto apunta a ese tramo y a esa línea.
   const datos = { formulario, universo: universoValido(), episodios: { 1: { estado: 'completo', musica: {}, bloques: [{ escenas: [
     { id: 'e1', titulo: 'La deuda', lineas: [{ tipo: 'dialogo', personaje: 'c1', texto: 'Primera parte. Segunda parte.' }],
       voz: { version: VZ.VERSION_VOZ, tramos: [{ ruta: 'r/v1.wav', segundos: 4.5, lineas: [0], tiempos: [{ inicio: 0, fin: 4.5 }], palabras }] },
       planos: [{ peso: 1, tipo: 'accion', imagen: { ruta: 'r/p1.png' } }] },
   ] }] } } };
   const zip = MO.hojaDeZip(datos, 1);
-  assert.equal(zip.voces.length, 2, 'la línea partida aporta dos piezas al audio continuo');
-  assert.deepEqual(zip.dialogos[0].piezas, [0, 1], 'y su diálogo suelto cubre las dos');
+  assert.equal(zip.voces.length, 1, 'la línea aporta su tramo entero, no piezas');
+  assert.deepEqual(zip.voces[0], { ruta: 'r/v1.wav', lineas: [{ inicio: 0, fin: 4.5 }] });
+  assert.deepEqual(zip.dialogos[0], { nombre: 'dialogos/dialogo-001.wav', tramo: 0, linea: 0 }, 'y su diálogo suelto apunta a su tramo y a su línea');
 });
 
 test('video: en pensamiento la narración no sale de nadie en pantalla (labios quietos)', () => {

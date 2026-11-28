@@ -84,12 +84,25 @@ function validar(id, h) {
       if (!/^[a-z0-9][a-z0-9_.-]{1,60}\.(txt|srt|json)$/.test(nombre)) throw new ErrorEstudio('Un nombre de texto del ZIP no es válido.', { estado: 400, tipo: 'peticion' });
       return { nombre, contenido: texto(t?.contenido, 400000) };
     });
-    // Voces para el audio único del paquete. Dos formas: la actual son
-    // PIEZAS (cortes [desde, hasta] de su archivo) que el montador une
-    // en un solo voces.wav CONTINUO, sin silencios; la antigua (hojas de
-    // versiones viejas) trae cada tramo con su inicio y su duración y
-    // se mezcla en su instante, con sus pausas.
+    // Voces para el audio único del paquete. Tres formas: la actual son
+    // TRAMOS (cada tramo tal como se generó, con la franja aproximada de
+    // cada una de sus líneas) y el montador une los tramos enteros y
+    // corta cada diálogo por las pausas reales; la de PIEZAS (cortes
+    // [desde, hasta] de su archivo) que el montador une en un solo
+    // voces.wav CONTINUO, sin silencios; la antigua (hojas de versiones
+    // viejas) trae cada tramo con su inicio y su duración y se mezcla
+    // en su instante, con sus pausas.
     const voces = lista(h.voces, 4000, 'las voces').map((v, i) => {
+      if (Array.isArray(v?.lineas)) {
+        const lineas = lista(v.lineas, 400, `las líneas del tramo ${i + 1}`).map((s, j) => {
+          const inicio = num(s?.inicio, 0, 3600, `el inicio de la línea ${j + 1} del tramo ${i + 1}`);
+          const fin = num(s?.fin, 0, 3600, `el fin de la línea ${j + 1} del tramo ${i + 1}`);
+          if (fin <= inicio) throw new ErrorEstudio(`La línea ${j + 1} del tramo ${i + 1} del ZIP no tiene duración.`, { estado: 400, tipo: 'peticion' });
+          return { inicio, fin };
+        });
+        if (!lineas.length) throw new ErrorEstudio(`El tramo ${i + 1} del ZIP no trae líneas.`, { estado: 400, tipo: 'peticion' });
+        return { ruta: medios.exigirDelProyecto(id, v?.ruta), lineas };
+      }
       if (v?.desde !== undefined || v?.hasta !== undefined) {
         const desde = num(v?.desde, 0, 3600, `el inicio de la pieza ${i + 1}`);
         const hasta = num(v?.hasta, 0, 3600, `el fin de la pieza ${i + 1}`);
@@ -112,6 +125,11 @@ function validar(id, h) {
         const [a, b] = d.piezas;
         if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b < a || b >= voces.length) throw new ErrorEstudio(`El diálogo ${i + 1} del ZIP apunta a piezas que no existen.`, { estado: 400, tipo: 'peticion' });
         return { nombre, piezas: [a, b] };
+      }
+      if (d?.tramo !== undefined || d?.linea !== undefined) {
+        const tramo = d?.tramo, linea = d?.linea;
+        if (!Number.isInteger(tramo) || !Number.isInteger(linea) || tramo < 0 || tramo >= voces.length || !Array.isArray(voces[tramo].lineas) || linea < 0 || linea >= voces[tramo].lineas.length) throw new ErrorEstudio(`El diálogo ${i + 1} del ZIP apunta a un tramo o a una línea que no existe.`, { estado: 400, tipo: 'peticion' });
+        return { nombre, tramo, linea };
       }
       const desde = num(d?.desde, 0, 3600, `el inicio del diálogo ${i + 1}`);
       const hasta = num(d?.hasta, 0, 3600, `el fin del diálogo ${i + 1}`);
@@ -158,7 +176,90 @@ function construir(h, { bucket, carpeta }) {
     // nombre de siempre.
     const slugTitulo = String(h.nombre || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60).replace(/-+$/g, '');
     const archivo = slugTitulo ? `${slugTitulo}-ep${pad(h.episodio, 2)}.zip` : `material-ep${pad(h.episodio, 2)}.zip`;
-    // AUDIO CONTINUO (la forma actual): las voces llegan como PIEZAS ya
+    // AUDIO TAL COMO SE GENERÓ (la forma actual, decisión del dueño del
+    // 2026-11-28): la edición la hace el dueño fuera de la app, así que
+    // el ZIP ya no parte las voces en piezas ni les quita los silencios.
+    // Cada tramo entra ENTERO, como salió de Google: solo se iguala el
+    // formato (48 kHz, estéreo) para poder unirlo y cortarlo; sin
+    // loudnorm, sin recortes por volumen y sin cortes por los tiempos
+    // de la transcripción, que era lo que se comía las letras suaves de
+    // los finales (la transcripción marca el fin de la palabra antes de
+    // que la palabra termine de sonar, y el borde de 0,10 s de las
+    // piezas no alcanzaba: «sobrevivir» salía «sobrevi»). El voces.wav
+    // es la unión de los tramos enteros, con sus pausas naturales entre
+    // líneas. Cada diálogo suelto se corta a MITAD DE LA PAUSA REAL
+    // entre su línea y la siguiente (silencedetect sobre el audio
+    // mismo): en una pausa no hay ninguna letra que cortar. Las
+    // franjas [inicio, fin] que trae la hoja solo dicen qué línea es
+    // cuál y dan el centro aproximado de cada pausa; el corte nunca
+    // cae sobre la palabra.
+    const sonTramos = voces.length > 0 && voces.every(v => Array.isArray(v.lineas));
+    if (sonTramos) {
+      const fuentes = [...new Set(voces.map(v => v.ruta))];
+      const indiceFuente = new Map(fuentes.map((r, i) => [r, i]));
+      for (const [i, r] of fuentes.entries()) descargas.push([gs(r), `a/v${pad(i + 1, 4)}.wav`]);
+      const funcionCortar = `cortar_tramo() {
+  local t="$1" franjas="$2" nombres="$3"
+  local dur
+  dur=$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$t")
+  ffmpeg -nostdin -y -i "$t" -af "silencedetect=noise=-45dB:d=0.15" -f null - 2>&1 | sed -n 's/.*silence_start: \\([0-9.][0-9.]*\\).*/INI \\1/p; s/.*silence_end: \\([0-9.][0-9.]*\\).*/FIN \\1/p' > "$t.pausas" || true
+  awk -v dur="$dur" -v franjas="$franjas" '
+    BEGIN { m = 0; while ((getline linea < franjas) > 0) { split(linea, p, " "); m++; ini[m] = p[1]; fin[m] = p[2] } c = 0 }
+    $1 == "INI" { c++; ps[c] = $2; pe[c] = -1 }
+    $1 == "FIN" { if (c > 0) pe[c] = $2 }
+    END {
+      print 0; prev = 0
+      for (k = 1; k < m; k++) {
+        medio = (fin[k] + ini[k + 1]) / 2; w0 = fin[k] - 0.35; w1 = ini[k + 1] + 0.35
+        mejor = -1; largoMejor = -1
+        for (j = 1; j <= c; j++) { if (pe[j] < 0) continue; largo = pe[j] - ps[j]; if (ps[j] <= medio && pe[j] >= medio && largo > largoMejor) { mejor = (ps[j] + pe[j]) / 2; largoMejor = largo } }
+        if (mejor < 0) for (j = 1; j <= c; j++) { if (pe[j] < 0) continue; largo = pe[j] - ps[j]; if (pe[j] > w0 && ps[j] < w1 && largo > largoMejor) { mejor = (ps[j] + pe[j]) / 2; largoMejor = largo } }
+        corte = (mejor >= 0 ? mejor : medio)
+        if (corte < prev + 0.05) corte = prev + 0.05
+        if (corte > dur - 0.05) corte = dur - 0.05
+        printf "%.3f\\n", corte; prev = corte
+      }
+      print dur
+    }' "$t.pausas" > "$t.cortes"
+  local k=0 nombre desde hasta
+  while IFS= read -r nombre; do
+    k=$((k + 1))
+    desde=$(sed -n "\${k}p" "$t.cortes")
+    hasta=$(sed -n "$((k + 1))p" "$t.cortes")
+    ffmpeg -nostdin -y -i "$t" -af "atrim=start=\${desde}:end=\${hasta},asetpts=N/SR/TB" -ar 48000 -ac 2 "$nombre"
+  done < "$nombres"
+}`;
+      const bloques = voces.map((v, i) => {
+        const t = pad(i + 1, 4);
+        const nombresPorLinea = v.lineas.map((_, k) => {
+          const d = (h.dialogos || []).find(x => x.tramo === i && x.linea === k);
+          return d ? `material/${d.nombre}` : `a/cortes/x${t}-${pad(k + 1, 4)}.wav`;
+        });
+        const franjas = v.lineas.map(s => `${f3(s.inicio)} ${f3(s.fin)}`).join('\n');
+        return `cat > a/tramos/s${t}.txt <<'FRANJAS'
+${franjas}
+FRANJAS
+cat > a/tramos/n${t}.txt <<'NOMBRES'
+${nombresPorLinea.join('\n')}
+NOMBRES
+ffmpeg -nostdin -y -i a/v${pad(indiceFuente.get(v.ruta) + 1, 4)}.wav -ar 48000 -ac 2 a/tramos/t${t}.wav
+cortar_tramo a/tramos/t${t}.wav a/tramos/s${t}.txt a/tramos/n${t}.txt`;
+      });
+      const unirVoces = `: > lista-voces.txt
+for n in $(seq -f '%04g' 1 ${voces.length}); do echo "file 'a/tramos/t$n.wav'" >> lista-voces.txt; done
+ffmpeg -nostdin -y -f concat -safe 0 -i lista-voces.txt -c copy material/voces.wav`;
+      const script = `#!/usr/bin/env bash
+set -Eeuo pipefail
+mkdir -p material/dialogos a/tramos a/cortes
+${funcionCortar}
+${bloques.join('\n')}
+${unirVoces}
+cd material
+zip -r -0 -q "../${archivo}" .
+`;
+      return { script, descargas, textos, archivo };
+    }
+    // AUDIO CONTINUO (la forma de piezas): las voces llegan como PIEZAS ya
     // cortadas sin silencios por el navegador. Cada pieza se corta de su
     // archivo con la normalización de siempre y SIN ningún segundo
     // recorte por volumen: el silenceremove que iba aquí borraba todo
